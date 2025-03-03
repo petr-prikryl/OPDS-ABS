@@ -16,7 +16,7 @@ This project provides an OPDS (Open Publication Distribution System) server that
   -  **Auth**
 
 ## Working clients
- - **PocketBook Reader iOS**
+ - **PocketBook Reader iOS (some heavy PDFs doesnt work)**
 
 ## 🛠 Installation & Usage
 
