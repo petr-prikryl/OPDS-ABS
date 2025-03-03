@@ -2,7 +2,7 @@
 version: '3.8'
 services:
   opds:
-    build: .
+    image: ghcr.io/petr-prikryl/opds-abs:latest
     ports:
       - "8000:8000"
     environment:
