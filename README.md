@@ -8,7 +8,11 @@ This project provides an OPDS (Open Publication Distribution System) server that
 - **Supports OPDS ( OPDS-PS in work)** for easy integration with reading apps
 - **Simple authentication** using API key
 - **Dockerized** for easy deployment
-- **Lightweight web interface(to be added)** for selecting libraries
+- **Lightweight web interface** 
+
+## 🚀 To DO
+  -  **OPDS-PS**
+  -  **Web interface** 
 
 ## 🛠 Installation & Usage
 
