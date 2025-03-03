@@ -141,7 +141,7 @@ docker_compose = """
 version: '3.8'
 services:
   opds:
-    build: .
+    image: ghcr.io/YOUR_GITHUB_USERNAME/opds-audiobookshelf:latest
     ports:
       - "8000:8000"
     environment:
