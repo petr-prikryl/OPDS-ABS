@@ -5,7 +5,7 @@ This project provides an OPDS (Open Publication Distribution System) server that
 ## 🚀 Features
 
 - **Fetch books & libraries** from the **Audiobookshelf API**
-- **Supports OPDS ( OPDS-PS in work)** for easy integration with reading apps
+- **Supports OPDS** for easy integration with reading apps
 - **Simple authentication** using API key
 - **Dockerized** for easy deployment
 - **Lightweight web interface** 
