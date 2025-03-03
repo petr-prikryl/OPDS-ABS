@@ -1,0 +1,11 @@
+
+version: '3.8'
+services:
+  opds:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
+      - AUDIOBOOKSHELF_API_KEY=your_api_key_here
+
