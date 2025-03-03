@@ -61,7 +61,7 @@ docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378/
 Or use `docker-compose.yml` directly:
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/opds-abs/main/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/OPDS-ABS/refs/heads/master/docker-compose.yml
 docker-compose up -d
 ```
 
