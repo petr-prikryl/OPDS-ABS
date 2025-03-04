@@ -86,10 +86,9 @@ def opds_library(library_id: str):
         title = book.get("media", {}).get("metadata", {}).get("title", "Neznámý název")
         book_id = book.get("id", "")
         api_key_param = f"?token={API_KEY}" if API_KEY else ""
-        cover_path = book.get("media", {}).get("coverPath", "")
         download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/download{api_key_param}"
 
-        cover_url = f"{AUDIOBOOKSHELF_API}{cover_path}{api_key_param}" if cover_path else ""
+        cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
 
         print(f"✅ Přidávám knihu: {title} ({ebook_format})")
 
