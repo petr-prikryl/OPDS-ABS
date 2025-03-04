@@ -5,10 +5,18 @@ This project provides an OPDS (Open Publication Distribution System) server that
 ## 🚀 Features
 
 - **Fetch books & libraries** from the **Audiobookshelf API**
-- **Supports OPDS ( OPDS-PS in work)** for easy integration with reading apps
+- **Supports OPDS** for easy integration with reading apps
 - **Simple authentication** using API key
 - **Dockerized** for easy deployment
-- **Lightweight web interface(to be added)** for selecting libraries
+- **Lightweight web interface** 
+
+## 🚀 To DO
+  -  **OPDS-PS**
+  -  **Web interface**
+  -  **Auth**
+
+## Confirmed Working clients
+ - **PocketBook Reader iOS (some heavy PDFs dont work)**
 
 ## 🛠 Installation & Usage
 
@@ -61,7 +69,7 @@ docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378/
 Or use `docker-compose.yml` directly:
 
 ```bash
-curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/opds-abs/main/docker-compose.yml
+curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/OPDS-ABS/refs/heads/master/docker-compose.yml
 docker-compose up -d
 ```
 
