@@ -39,7 +39,7 @@ This will start the OPDS server.
 
 ### 3️⃣ **Access the OPDS feed**
 
-- **OPDS Root:** `http://localhost:8000/opds`
+- **OPDS Root:** `http://localhost:8000/opds/<username defined in compose yml>`
 - **Web Interface:** `http://localhost:8000/`
 
 You can use an OPDS-compatible reader (e.g., **Calibre, KOReader, Thorium Reader**) to access your books.
@@ -51,12 +51,13 @@ You can configure the server using environment variables:
 ```yaml
 services:
   opds:
-    environment:
+     environment:
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
-      - AUDIOBOOKSHELF_API_KEY=your_api_key_here
+      - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3
+
 ```
 
-Replace `your_api_key_here` with your **Audiobookshelf API key** if authentication is required.
+Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is required. CHange names For John, Jan and guest as you want 
 
 ## 🐳 Running from GitHub Container Registry (GHCR)
 
