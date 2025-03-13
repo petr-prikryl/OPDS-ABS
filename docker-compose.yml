@@ -7,5 +7,5 @@ services:
       - "8000:8000"
     environment:
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
-      - AUDIOBOOKSHELF_API_KEY=your_api_key_here
+      - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3
 
