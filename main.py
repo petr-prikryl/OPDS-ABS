@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import requests
 import os
+from lxml import etree
 
 app = FastAPI()
 security = HTTPBasic()
@@ -43,21 +44,18 @@ def opds_root(username: str):
     api_key = USER_KEYS[username]
     data = fetch_from_api("/libraries", api_key)
 
-    feed = f"""
-    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>Libraries of {username}</title>
-    """
+    feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
+    title = etree.SubElement(feed, "title")
+    title.text = f"Libraries of {username}"
 
     for library in data.get("libraries", []):
-        feed += f"""
-        <entry>
-            <title>{library["name"]}</title>
-            <link href="/opds/{username}/library/{library['id']}" rel="subsection" type="application/atom+xml"/>
-        </entry>
-        """
+        entry = etree.SubElement(feed, "entry")
+        entry_title = etree.SubElement(entry, "title")
+        entry_title.text = library["name"]
+        link = etree.SubElement(entry, "link", href=f"/opds/{username}/library/{library['id']}", rel="subsection", type="application/atom+xml")
 
-    feed += "</feed>"
-    return Response(content=feed, media_type="application/atom+xml")
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/opds/{username}/library/{library_id}")
 def opds_library(username: str, library_id: str):
@@ -70,10 +68,9 @@ def opds_library(username: str, library_id: str):
 
     print(f"📥 API odpověď obsahuje {len(data.get('results', []))} položek")
 
-    feed = f"""
-    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>Books of {username}</title>
-    """
+    feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
+    title = etree.SubElement(feed, "title")
+    title.text = f"Books of {username}"
 
     for book in data.get("results", []):
         print(f"🔍 Zpracovávám: {book.get('id')}")
@@ -83,26 +80,23 @@ def opds_library(username: str, library_id: str):
             print(f"⏭ Přeskakuji: {book.get('id')} (chybí ebookFormat)")
             continue
 
-        title = book.get("media", {}).get("metadata", {}).get("title", "Neznámý název")
+        entry_title_text = book.get("media", {}).get("metadata", {}).get("title", "Neznámý název")
         book_id = book.get("id", "")
         download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/download?token={api_key}"
         cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
 
-        print(f"✅ Přidávám knihu: {title} ({ebook_format})")
+        print(f"✅ Přidávám knihu: {entry_title_text} ({ebook_format})")
 
-        feed += f"""
-        <entry>
-            <title>{title}</title>
-            <id>{book_id}</id>
-            <link href="{download_path}" rel="http://opds-spec.org/acquisition/open-access" type="application/{ebook_format}"/>
-            <link href="{cover_url}" rel="http://opds-spec.org/image" type="image/jpeg"/>
-        </entry>
-        """
+        entry = etree.SubElement(feed, "entry")
+        entry_title = etree.SubElement(entry, "title")
+        entry_title.text = entry_title_text
+        entry_id = etree.SubElement(entry, "id")
+        entry_id.text = book_id
+        link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
+        link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
 
-    feed += "</feed>"
-    return Response(content=feed, media_type="application/atom+xml")
-
-
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/")
 def index():
