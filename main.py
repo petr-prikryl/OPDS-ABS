@@ -43,10 +43,9 @@ def opds_root(username: str):
 
     api_key = USER_KEYS[username]
     data = fetch_from_api("/libraries", api_key)
-
     feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
     title = etree.SubElement(feed, "title")
-    title.text = f"{username}'s libraries"
+    title.text = f"{username}'s Libraries"
 
     for library in data.get("libraries", []):
         entry = etree.SubElement(feed, "entry")
