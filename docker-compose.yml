@@ -8,4 +8,4 @@ services:
     environment:
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
       - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3
-
+      - LANGUAGE=cs  # Set the language to Czech (cs) or English (en)
