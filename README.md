@@ -64,7 +64,7 @@ Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is re
 You can use the pre-built Docker image:
 
 ```bash
-docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378/api ghcr.io/petr-prikryl/opds-abs:latest
+docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378 ghcr.io/petr-prikryl/opds-abs:latest
 ```
 
 Or use `docker-compose.yml` directly:
