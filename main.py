@@ -45,7 +45,7 @@ def opds_root(username: str):
 
     feed = f"""
     <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>Libraries of {username}</title>
+        <title>{username}'s Libraries</title>
     """
 
     for library in data.get("libraries", []):
@@ -72,7 +72,7 @@ def opds_library(username: str, library_id: str):
 
     feed = f"""
     <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>Books of {username}</title>
+        <title>{username}'s Books</title>
     """
 
     for book in data.get("results", []):
