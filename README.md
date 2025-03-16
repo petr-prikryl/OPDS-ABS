@@ -39,7 +39,7 @@ This will start the OPDS server.
 
 ### 3️⃣ **Access the OPDS feed**
 
-- **OPDS Root:** `http://localhost:8000/opds/<username defined in compose yml>`
+- **OPDS Root:** `http://localhost:8000/opds`
 - **Web Interface:** `http://localhost:8000/`
 
 You can use an OPDS-compatible reader (e.g., **Calibre, KOReader, Thorium Reader**) to access your books.
@@ -54,6 +54,7 @@ services:
      environment:
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
       - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3
+      - LANGUAGE=cs # Set the language to Czech (cs) or English (en)
 
 ```
 
@@ -64,7 +65,7 @@ Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is re
 You can use the pre-built Docker image:
 
 ```bash
-docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378/api ghcr.io/petr-prikryl/opds-abs:latest
+docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378 ghcr.io/petr-prikryl/opds-abs:latest
 ```
 
 Or use `docker-compose.yml` directly:
