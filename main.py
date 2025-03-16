@@ -53,7 +53,7 @@ def opds_root(username: str):
         entry_title.text = library["name"]
         link = etree.SubElement(entry, "link", href=f"/opds/{username}/library/{library['id']}", rel="subsection", type="application/atom+xml")
 
-    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
     return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/opds/{username}/library/{library_id}")
@@ -94,7 +94,7 @@ def opds_library(username: str, library_id: str):
         link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
         link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
 
-    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
     return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/")
