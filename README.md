@@ -39,7 +39,7 @@ This will start the OPDS server.
 
 ### 3️⃣ **Access the OPDS feed**
 
-- **OPDS Root:** `http://localhost:8000/opds`
+- **OPDS Root:** `http://localhost:8000/opds/<username defined in compose yml>`	
 - **Web Interface:** `http://localhost:8000/`
 
 You can use an OPDS-compatible reader (e.g., **Calibre, KOReader, Thorium Reader**) to access your books.
