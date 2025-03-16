@@ -35,6 +35,12 @@ def fetch_from_api(endpoint: str, api_key: str):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"Chyba API: {str(e)}")
 
+def get_download_urls(id: str, api_key: str):
+    """Získejte adresu URL ke stažení z ID položky"""
+    item = fetch_from_api(f"/items/{id}", api_key)
+    ebook_inos = [{"ino":file.get("ino"),"filename":file.get("metadata").get("filename")} for file in item.get("libraryFiles", []) if "ebook" in file.get("fileType", "")]
+    return ebook_inos
+
 @app.get("/opds/{username}")
 def opds_root(username: str):
     """Vrátí seznam knihoven pro konkrétního uživatele"""
@@ -79,20 +85,26 @@ def opds_library(username: str, library_id: str):
             print(f"⏭ Přeskakuji: {book.get('id')} (chybí ebookFormat)")
             continue
 
-        entry_title_text = book.get("media", {}).get("metadata", {}).get("title", "Neznámý název")
         book_id = book.get("id", "")
-        download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/download?token={api_key}"
-        cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
+        ebook_inos = get_download_urls(book_id, api_key)
+        for ebook in ebook_inos:
+            ino, filename = ebook.get("ino"), ebook.get("filename")
+            entry_title_text = book.get("media", {}).get("metadata", {}).get("title", "Neznámý název")
+            
+            download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/file/{ino}/download?token={api_key}" 
+            cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
 
-        print(f"✅ Přidávám knihu: {entry_title_text} ({ebook_format})")
+            print(f"✅ Přidávám knihu: {entry_title_text} ({ebook_format})")
 
-        entry = etree.SubElement(feed, "entry")
-        entry_title = etree.SubElement(entry, "title")
-        entry_title.text = entry_title_text
-        entry_id = etree.SubElement(entry, "id")
-        entry_id.text = book_id
-        link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
-        link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
+            entry = etree.SubElement(feed, "entry")
+            entry_title = etree.SubElement(entry, "title")
+            entry_title.text = entry_title_text
+            entry_id = etree.SubElement(entry, "id")
+            entry_id.text = book_id
+            entry_filename = etree.SubElement(entry, "content", type="text")
+            entry_filename.text = filename
+            link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
+            link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
 
     feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
     return Response(content=feed_xml, media_type="application/atom+xml")
