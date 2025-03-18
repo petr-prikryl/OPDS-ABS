@@ -3,6 +3,7 @@ from fastapi.responses import Response
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import requests
 import os
+from lxml import etree
 
 app = FastAPI()
 security = HTTPBasic()
@@ -34,6 +35,12 @@ def fetch_from_api(endpoint: str, api_key: str):
     except requests.exceptions.RequestException as e:
         raise HTTPException(status_code=500, detail=f"API Error: {str(e)}")
 
+def get_download_urls(id: str, api_key: str):
+    """Získejte adresu URL ke stažení z ID položky"""
+    item = fetch_from_api(f"/items/{id}", api_key)
+    ebook_inos = [{"ino":file.get("ino"),"filename":file.get("metadata").get("filename")} for file in item.get("libraryFiles", []) if "ebook" in file.get("fileType", "")]
+    return ebook_inos
+
 @app.get("/opds/{username}")
 def opds_root(username: str):
     """Returns a list of libraries for a specific user"""
@@ -42,22 +49,18 @@ def opds_root(username: str):
 
     api_key = USER_KEYS[username]
     data = fetch_from_api("/libraries", api_key)
-
-    feed = f"""
-    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>{username}'s Libraries</title>
-    """
+    feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
+    title = etree.SubElement(feed, "title")
+    title.text = f"{username}'s Libraries"
 
     for library in data.get("libraries", []):
-        feed += f"""
-        <entry>
-            <title>{library["name"]}</title>
-            <link href="/opds/{username}/library/{library['id']}" rel="subsection" type="application/atom+xml"/>
-        </entry>
-        """
+        entry = etree.SubElement(feed, "entry")
+        entry_title = etree.SubElement(entry, "title")
+        entry_title.text = library["name"]
+        link = etree.SubElement(entry, "link", href=f"/opds/{username}/library/{library['id']}", rel="subsection", type="application/atom+xml")
 
-    feed += "</feed>"
-    return Response(content=feed, media_type="application/atom+xml")
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
+    return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/opds/{username}/library/{library_id}")
 def opds_library(username: str, library_id: str):
@@ -70,10 +73,9 @@ def opds_library(username: str, library_id: str):
 
     print(f"📥 API response contains {len(data.get('results', []))} items")
 
-    feed = f"""
-    <feed xmlns="http://www.w3.org/2005/Atom" xmlns:opds="http://opds-spec.org/2010/catalog">
-        <title>{username}'s Books</title>
-    """
+    feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
+    title = etree.SubElement(feed, "title")
+    title.text = f"{username}'s books"
 
     for book in data.get("results", []):
         print(f"🔍 Processing: {book.get('id')}")
@@ -82,25 +84,30 @@ def opds_library(username: str, library_id: str):
         if not ebook_format:
             print(f"⏭ Skipping: {book.get('id')} (missing ebookFormat)")
             continue
-
-        title = book.get("media", {}).get("metadata", {}).get("title", f"Unknown Title")
+            
         book_id = book.get("id", "")
-        download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/download?token={api_key}"
-        cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
+        ebook_inos = get_download_urls(book_id, api_key)
+        for ebook in ebook_inos:
+            ino, filename = ebook.get("ino"), ebook.get("filename")
+            entry_title_text = book.get("media", {}).get("metadata", {}).get("title", "Unknown Title")
+            
+            download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/file/{ino}/download?token={api_key}" 
+            cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
 
-        print(f"✅ Adding book: {title} ({ebook_format})")
+            print(f"✅ Adding book: {entry_title_text} ({ebook_format})")
 
-        feed += f"""
-        <entry>
-            <title>{title}</title>
-            <id>{book_id}</id>
-            <link href="{download_path}" rel="http://opds-spec.org/acquisition/open-access" type="application/{ebook_format}"/>
-            <link href="{cover_url}" rel="http://opds-spec.org/image" type="image/jpeg"/>
-        </entry>
-        """
+            entry = etree.SubElement(feed, "entry")
+            entry_title = etree.SubElement(entry, "title")
+            entry_title.text = entry_title_text
+            entry_id = etree.SubElement(entry, "id")
+            entry_id.text = book_id
+            entry_filename = etree.SubElement(entry, "content", type="text")
+            entry_filename.text = filename
+            link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
+            link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
 
-    feed += "</feed>"
-    return Response(content=feed, media_type="application/atom+xml")
+    feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
+    return Response(content=feed_xml, media_type="application/atom+xml")
 
 @app.get("/")
 def index():
