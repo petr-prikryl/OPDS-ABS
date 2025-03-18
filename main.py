@@ -106,6 +106,7 @@ def opds_library(username: str, library_id: str):
             link_download = etree.SubElement(entry, "link", href=download_path, rel="http://opds-spec.org/acquisition/open-access", type=f"application/{ebook_format}")
             link_cover = etree.SubElement(entry, "link", href=cover_url, rel="http://opds-spec.org/image", type="image/jpeg")
 
+    feed[:] = sorted(feed, key=lambda ch: ch.xpath("title/text()"))
     feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
     return Response(content=feed_xml, media_type="application/atom+xml")
 
