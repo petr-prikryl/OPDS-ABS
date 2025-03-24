@@ -1,4 +1,5 @@
+aiohttp
+asyncio
 fastapi
 uvicorn
-requests
 lxml
