@@ -124,6 +124,7 @@ async def opds_library(username: str, library_id: str):
         for ebook in ebook_inos:
             ino, filename = ebook.get("ino"), ebook.get("filename")
             entry_title_text = book.get("media", {}).get("metadata", {}).get("title", "Unknown Title")
+            book_id = book.get("id", "")
 
             download_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}/file/{ino}/download?token={api_key}" 
             cover_url = f"{AUDIOBOOKSHELF_API}/items/{book_id}/cover?format=jpeg"
