@@ -4,6 +4,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import aiohttp
 import asyncio
 import os
+import icons
 from lxml import etree
 
 app = FastAPI()
@@ -70,6 +71,7 @@ async def opds_root(username: str):
         entry_title = etree.SubElement(entry, "title")
         entry_title.text = library["name"]
         link = etree.SubElement(entry, "link", href=f"/opds/{username}/library/{library['id']}", rel="subsection", type="application/atom+xml")
+        link_icon = etree.SubElement(entry, "link", href=f"data:image/png;base64,{icons.library}", rel="http://opds-spec.org/image", type="image/png")
 
     feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
     return Response(content=feed_xml, media_type="application/atom+xml")
