@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import Response, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 import aiohttp
 import asyncio
@@ -74,7 +74,12 @@ async def opds_root(username: str):
     feed = etree.Element("feed", xmlns="http://www.w3.org/2005/Atom", nsmap={"opds": "http://opds-spec.org/2010/catalog"})
     title = etree.SubElement(feed, "title")
     title.text = f"{username}'s Libraries"
+    
+    libraries = data.get("libraries", [])
+    if len(libraries) == 1:
+        return RedirectResponse(url=f"/opds/{username}/library/{libraries[0].get('id', '')}", status_code=302)
 
+        
     for library in data.get("libraries", []):
         entry = etree.SubElement(feed, "entry")
         entry_title = etree.SubElement(entry, "title")
