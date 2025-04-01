@@ -1,6 +1,9 @@
 -r requirements.txt
 pylint
+<<<<<<< HEAD
 pydocstyle
 flake8
 flake8-docstrings
 pre-commit
+=======
+>>>>>>> 919115b (add navigation menu and filtering on series (#18))
