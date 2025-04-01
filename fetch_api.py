@@ -1,18 +1,24 @@
 """Grab data from Audiobookshelf endpoints"""
 import asyncio
+import logging
 import aiohttp
 from fastapi import HTTPException
 from config import AUDIOBOOKSHELF_API, API_KEY
 
-async def fetch_from_api(endpoint: str):
+async def fetch_from_api(endpoint: str, params: dict = None):
     """General function to call API with user's API key"""
     headers = {"Authorization": f"Bearer {API_KEY}"}
     url = f"{AUDIOBOOKSHELF_API}{endpoint}"
-    print(f"📡 Fetching: {url}")
+    print(f"📡 Fetching: {url}{' with params ' + str(params) if params else ''}")
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url, headers=headers, timeout=10) as response:
+            async with session.get(
+                    url,
+                    params=params if params else {},
+                    headers=headers,
+                    timeout=10
+                ) as response:
                 response.raise_for_status()
                 return await response.json()
         except asyncio.TimeoutError as timeout_error:
