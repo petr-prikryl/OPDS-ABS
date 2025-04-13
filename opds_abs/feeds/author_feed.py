@@ -5,6 +5,7 @@ from lxml import etree
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
+from opds_abs.utils import dict_to_xml
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -15,44 +16,47 @@ class AuthorFeedGenerator(BaseFeedGenerator):
     def add_author_to_feed(self, username, library_id, feed, author):
         """Add an author to the feed"""
         try:
-            entry = etree.SubElement(feed, "entry")
-            
-            entry_title = etree.SubElement(entry, "title")
-            entry_title.text = author.get("name", "Unknown author name")
-            
-            entry_id = etree.SubElement(entry, "id")
-            entry_id.text = author.get("id", "unknown_id")
-            
             # Get a cover url if we have a book with an ebook
             cover_url = "/static/images/unknown-author.png"
             if author.get("imagePath"):
                 cover_url = f"{AUDIOBOOKSHELF_API}/authors/{author.get('id')}/image?format=jpeg"
- 
-            # Create an entry about the author
-            entry_content = etree.SubElement(entry, "content")
-            book_count = author.get("ebook_count", 0)
-            entry_content.text = f"Author with {book_count} ebook{'s' if book_count != 1 else ''}"
             
             # Create link to filter by author name
             author_name = author.get("name", "")
-            # Use authors filter which is in media.metadata.authorName
+            # Use authorName filter which is in media.metadata.authorName
             author_filter = f"filter=authors.{self.create_filter(author.get('id'))}"
             
-            etree.SubElement(
-                entry,
-                "link",
-                href=f"/opds/{username}/libraries/{library_id}/items?{author_filter}",
-                rel="subsection",
-                type="application/atom+xml"
-            )
+            # Get ebook count
+            book_count = author.get("ebook_count", 0)
             
-            etree.SubElement(
-                entry,
-                "link",
-                href=cover_url,
-                rel="http://opds-spec.org/image",
-                type="image/jpeg"
-            )
+            # Create the entry data structure
+            entry_data = {
+                "entry": {
+                    "title": {"_text": author.get("name", "Unknown author name")},
+                    "id": {"_text": author.get("id", "unknown_id")},
+                    "content": {"_text": f"Author with {book_count} ebook{'s' if book_count != 1 else ''}"},
+                    "link": [
+                        {
+                            "_attrs": {
+                                "href": f"/opds/{username}/libraries/{library_id}/items?{author_filter}",
+                                "rel": "subsection",
+                                "type": "application/atom+xml"
+                            }
+                        },
+                        {
+                            "_attrs": {
+                                "href": cover_url,
+                                "rel": "http://opds-spec.org/image",
+                                "type": "image/jpeg"
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            # Convert the dictionary to XML elements
+            dict_to_xml(feed, entry_data)
+            
         except Exception as e:
             logger.error(f"Error adding author to feed: {str(e)}")
     
@@ -140,10 +144,15 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             # Create the feed
             feed = self.create_base_feed(username, library_id)
-            feed_id = etree.SubElement(feed, "id")
-            feed_id.text = library_id
-            title = etree.SubElement(feed, "title")
-            title.text = f"{username}'s authors with ebooks"
+            
+            # Build the feed metadata
+            feed_data = {
+                "id": {"_text": library_id},
+                "title": {"_text": f"{username}'s authors with ebooks"}
+            }
+            
+            # Convert feed metadata to XML
+            dict_to_xml(feed, feed_data)
             
             try:
                 # First, get the list of authors who have ebooks
@@ -151,11 +160,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 
                 if not authors_with_ebooks:
                     logger.warning("No authors with ebooks found")
-                    error_entry = etree.SubElement(feed, "entry")
-                    error_title = etree.SubElement(error_entry, "title")
-                    error_title.text = "No authors with ebooks found"
-                    error_content = etree.SubElement(error_entry, "content")
-                    error_content.text = "Could not find any authors with ebooks in the library"
+                    error_data = {
+                        "entry": {
+                            "title": {"_text": "No authors with ebooks found"},
+                            "content": {"_text": "Could not find any authors with ebooks in the library"}
+                        }
+                    }
+                    dict_to_xml(feed, error_data)
                     return self.create_response(feed)
                 
                 # Get author details including images and other metadata
@@ -190,11 +201,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 traceback.print_exc()
                 
                 # Create a basic entry with error info
-                error_entry = etree.SubElement(feed, "entry")
-                error_title = etree.SubElement(error_entry, "title")
-                error_title.text = "Error processing authors"
-                error_content = etree.SubElement(error_entry, "content")
-                error_content.text = f"An error occurred while processing author data: {str(e)}"
+                error_data = {
+                    "entry": {
+                        "title": {"_text": "Error processing authors"},
+                        "content": {"_text": f"An error occurred while processing author data: {str(e)}"}
+                    }
+                }
+                dict_to_xml(feed, error_data)
             
             return self.create_response(feed)
             
@@ -205,10 +218,12 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             # Return a basic feed with an error message
             feed = self.create_base_feed(username, library_id)
-            error_title = etree.SubElement(feed, "title")
-            error_title.text = "Error generating authors feed"
-            error_entry = etree.SubElement(feed, "entry")
-            error_content = etree.SubElement(error_entry, "content")
-            error_content.text = f"An error occurred: {str(e)}"
+            error_data = {
+                "title": {"_text": "Error generating authors feed"},
+                "entry": {
+                    "content": {"_text": f"An error occurred: {str(e)}"}
+                }
+            }
+            dict_to_xml(feed, error_data)
             
             return self.create_response(feed)
