@@ -12,3 +12,6 @@ for pair in users_env.split(","):
     if ":" in pair:
         USERNAME, API_KEY = pair.split(":", 1)
         USER_KEYS[USERNAME] = API_KEY
+
+# Default to the first API key if available
+API_KEY = next(iter(USER_KEYS.values()), "") if USER_KEYS else ""
