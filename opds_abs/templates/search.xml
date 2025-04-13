@@ -1,0 +1,10 @@
+<OpenSearchDescription xmlns="http://a9.com/-/spec/opensearch/1.1/">
+<LongName>Audiobookshelf OPDS feed</LongName>
+<ShortName>OPDS-ABS</ShortName>
+<Description>Search the Audiobookshelf's ebook catalog.</Description>
+<Url type="application/atom+xml;profile=opds-catalog;kind=acquisition"
+     template="/opds/{{ username }}/libraries/{{ library_id }}/search?q={searchTerms}" />
+<Query role="example" searchTerms="shakespeare hamlet"/>
+<Query role="example" searchTerms="doyle detective"/>
+<Query role="example" searchTerms="love stories"/>
+</OpenSearchDescription>
