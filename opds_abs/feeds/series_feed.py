@@ -4,6 +4,7 @@ from lxml import etree
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API
+from opds_abs.utils import dict_to_xml
 
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed"""
@@ -27,7 +28,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
     
     def add_series_to_feed(self, username, library_id, feed, series):
         """Add a series to the feed"""
-        first_book = series.get('books', [])[0]
+        first_book = series.get('books', [])[0] if series.get('books') else {}
         first_book_metadata = first_book.get('media', {}).get('metadata', {})
         book_path = f"{AUDIOBOOKSHELF_API}/items/{first_book.get('id','')}"
         cover_url = f"{book_path}/cover?format=jpeg"
@@ -39,12 +40,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         print(f"Adding series: {series.get('name')} " + 
               f"with author: {series.get('authorName', 'None')} " +
               f"(from search feed: {from_search_feed})")
-        
-        entry = etree.SubElement(feed, "entry")
-        entry_title = etree.SubElement(entry, "title")
-        entry_title.text = series.get("name", "Unknown series name")
-        entry_id = etree.SubElement(entry, "id")
-        entry_id.text = series.get("id")
         
         # Get author name with proper fallback chain
         author_name = None
@@ -79,40 +74,53 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             raw_author_name = author_name
             print(f"  Using default author label: {author_name}")
         
-        # Add proper atom:author element (this is what OPDS readers look for)
-        entry_author = etree.SubElement(entry, "author")
-        entry_author_name = etree.SubElement(entry_author, "name")
-        entry_author_name.text = raw_author_name
-        
-        # Also keep the content element for backward compatibility
-        # Format the content differently based on the source
-        entry_content = etree.SubElement(entry, "content")
+        # Format the content based on the source
+        content_text = ""
         if from_search_feed:
             # For search feed, ensure it starts with "Series by"
             if not author_name.startswith("Series by ") and not author_name == "Unknown Series":
-                entry_content.text = f"Series by {raw_author_name}"
+                content_text = f"Series by {raw_author_name}"
             else:
-                entry_content.text = author_name
+                content_text = author_name
         else:
             # For series feed, just use the raw author name
-            entry_content.text = raw_author_name
+            content_text = raw_author_name
         
+        # Build filter parameters
         series_filter = f"filter=series.{self.create_filter(series.get('id'))}"
         sort = "sort=media.metadata.series.number"
         params = f"{series_filter}&{sort}"
-        etree.SubElement(entry,
-            "link",
-            href=f"/opds/{username}/libraries/{library_id}/items?{params}",
-            rel="subsection",
-            type="application/atom+xml"
-        )
-        etree.SubElement(
-            entry,
-            "link",
-            href=cover_url,
-            rel="http://opds-spec.org/image",
-            type="image/jpeg"
-        )
+        
+        # Create entry data structure
+        entry_data = {
+            "entry": {
+                "title": {"_text": series.get("name", "Unknown series name")},
+                "id": {"_text": series.get("id")},
+                "author": {
+                    "name": {"_text": raw_author_name}
+                },
+                "content": {"_text": content_text},
+                "link": [
+                    {
+                        "_attrs": {
+                            "href": f"/opds/{username}/libraries/{library_id}/items?{params}",
+                            "rel": "subsection",
+                            "type": "application/atom+xml"
+                        }
+                    },
+                    {
+                        "_attrs": {
+                            "href": cover_url,
+                            "rel": "http://opds-spec.org/image",
+                            "type": "image/jpeg"
+                        }
+                    }
+                ]
+            }
+        }
+        
+        # Convert the dictionary to XML elements
+        dict_to_xml(feed, entry_data)
     
     async def generate_series_feed(self, username, library_id):
         """Display all series in the library"""
@@ -122,10 +130,15 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         data = await fetch_from_api(f"/libraries/{library_id}/series", series_params)
 
         feed = self.create_base_feed(username, library_id)
-        feed_id = etree.SubElement(feed, "id")
-        feed_id.text = library_id
-        title = etree.SubElement(feed, "title")
-        title.text = f"{username}'s series"
+        
+        # Create feed metadata using dictionary approach
+        feed_data = {
+            "id": {"_text": library_id},
+            "title": {"_text": f"{username}'s series"}
+        }
+        
+        # Convert feed metadata to XML
+        dict_to_xml(feed, feed_data)
 
         series_items = self.filter_series(data)
 

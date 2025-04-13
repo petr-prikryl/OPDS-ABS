@@ -5,6 +5,7 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
+from opds_abs.utils import dict_to_xml
 
 
 class SearchFeedGenerator(BaseFeedGenerator):
@@ -19,8 +20,10 @@ class SearchFeedGenerator(BaseFeedGenerator):
         if not query:
             # If no query provided, return empty search results
             feed = self.create_base_feed(username, library_id)
-            title = etree.SubElement(feed, "title")
-            title.text = f"Search results for: {query}"
+            feed_data = {
+                "title": {"_text": f"Search results for: {query}"}
+            }
+            dict_to_xml(feed, feed_data)
             feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
             return Response(content=feed_xml, media_type="application/atom+xml")
 
@@ -32,10 +35,13 @@ class SearchFeedGenerator(BaseFeedGenerator):
         
         # Create the base feed
         feed = self.create_base_feed()
-        feed_id = etree.SubElement(feed, "id")
-        feed_id.text = f"{library_id}/search/{query}"
-        title = etree.SubElement(feed, "title")
-        title.text = f"Search results for: {query}"
+        
+        # Add feed metadata using dictionary approach
+        feed_data = {
+            "id": {"_text": f"{library_id}/search/{query}"},
+            "title": {"_text": f"Search results for: {query}"}
+        }
+        dict_to_xml(feed, feed_data)
         
         # Process books with ebook files
         for book_result in search_data.get("book", []):
@@ -226,9 +232,10 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 if author_data:
                     # Add the ebook count to the author data
                     author_data["ebook_count"] = ebook_count
+                    author_data["id"] = author_data.get("id", "")
                     
                     author_generator = AuthorFeedGenerator()
                     author_generator.add_author_to_feed(username, library_id, feed, author_data)
         
-        feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
+        # Instead of calling etree.tostring directly, use the create_response method
         return self.create_response(feed)

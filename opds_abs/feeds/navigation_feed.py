@@ -3,6 +3,7 @@ from lxml import etree
 
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.core.navigation import navigation
+from opds_abs.utils import dict_to_xml
 
 class NavigationFeedGenerator(BaseFeedGenerator):
     """Generator for navigation feed"""
@@ -12,29 +13,47 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         self.verify_user(username)
 
         feed = self.create_base_feed(username, library_id)
-        title = etree.SubElement(feed, "title")
-        title.text = "Navigation"
+        
+        # Add feed title using dictionary approach
+        feed_data = {
+            "title": {"_text": "Navigation"}
+        }
+        dict_to_xml(feed, feed_data)
         
         for nav in navigation:
-            entry = etree.SubElement(feed, "entry")
-            entry_title = etree.SubElement(entry, "title")
-            entry_title.text = nav.get("name", "")
+            # Set up navigation item paths and URLs
             base_path = f"/opds/{username}/libraries/{library_id}/"
             nav_params = f"{nav.get('params','')}"
             nav_href = f"{base_path}{nav.get('path','')}?{nav_params}"
-            etree.SubElement(entry,
-                "link",
-                href=f"{nav_href}",
-                rel="subsection",
-                type="application/atom+xml"
-            )
-            etree.SubElement(entry,
-                "link",
-                href=f"/static/images/{nav.get('name').lower()}.png",
-                rel="http://opds-spec.org/image",
-                type="image/png"
-            )
-            description = etree.SubElement(entry, "content", type="text")
-            description.text = nav["desc"]
+            
+            # Create entry data structure
+            entry_data = {
+                "entry": {
+                    "title": {"_text": nav.get("name", "")},
+                    "content": {
+                        "_attrs": {"type": "text"},
+                        "_text": nav["desc"]
+                    },
+                    "link": [
+                        {
+                            "_attrs": {
+                                "href": nav_href,
+                                "rel": "subsection",
+                                "type": "application/atom+xml"
+                            }
+                        },
+                        {
+                            "_attrs": {
+                                "href": f"/static/images/{nav.get('name').lower()}.png",
+                                "rel": "http://opds-spec.org/image",
+                                "type": "image/png"
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            # Convert dictionary to XML elements
+            dict_to_xml(feed, entry_data)
 
         return self.create_response(feed)

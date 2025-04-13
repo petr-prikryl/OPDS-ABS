@@ -2,10 +2,12 @@
 from base64 import b64encode
 from copy import deepcopy
 from lxml import etree
+from datetime import datetime
 from fastapi import HTTPException
 from fastapi.responses import Response
 
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
+from opds_abs.utils import dict_to_xml
 
 class BaseFeedGenerator:
     """Base class for creating OPDS feed components"""
@@ -21,11 +23,16 @@ class BaseFeedGenerator:
         """Create a copy of the base feed"""
         base_feed = deepcopy(self.base_feed)
         if username and library_id:
-            etree.SubElement(base_feed, "link",
-                href=f"/opds/{username}/libraries/{library_id}/search.xml",
-                rel="search",
-                type="application/opensearchdescription+xml"
-            )
+            search_link = {
+                "link": {
+                    "_attrs": {
+                        "href": f"/opds/{username}/libraries/{library_id}/search.xml",
+                        "rel": "search",
+                        "type": "application/opensearchdescription+xml"
+                    }
+                }
+            }
+            dict_to_xml(base_feed, search_link)
         return base_feed
         
     def create_response(self, feed):
@@ -40,9 +47,6 @@ class BaseFeedGenerator:
             
     def add_book_to_feed(self, feed, book, ebook_inos, query_filter=""):
         """Add a book to the feed"""
-        # Implementation from OPDSFeed.add_book_to_feed
-        from datetime import datetime
-        
         media = book.get("media", {})
         # Extract ebook format - check both direct and nested paths (for search results)
         ebook_format = media.get("ebookFormat", media.get("ebookFile", {}).get("ebookFormat"))
@@ -55,42 +59,56 @@ class BaseFeedGenerator:
             series_list = book_metadata.get("seriesName", None)
             added_at = datetime.fromtimestamp(book.get('addedAt')/1000).strftime('%Y-%m-%d')
 
-            entry = etree.SubElement(feed, "entry")
-            entry_title = etree.SubElement(entry, "title")
-            entry_title.text = book_metadata.get("title", "Unknown Title")
-            entry_id = etree.SubElement(entry, "id")
-            entry_id.text = book.get("id")
-            entry_content = etree.SubElement(entry, "content", type="xhtml")
-            entry_content.text = (
+            # Create the description content with HTML formatting
+            content_text = (
                 f"{book_metadata.get('description', '')}<br/><br/>"
                 f"{'Series: ' + series_list + '<br/>' if series_list else ''}"
                 f"Published year: {book_metadata.get('publishedYear')}<br/>"
                 f"Genres: {', '.join(book_metadata.get('genres', []))}<br/>"
                 f"Added at: {added_at}<br/>"
             )
-            entry_author = etree.SubElement(entry, "author")
-            entry_author_name = etree.SubElement(entry_author, "name")
-            entry_author_name.text = book_metadata.get("authorName", "Unknown Author")
+            
+            # Build the entry data structure
+            entry_data = {
+                "entry": {
+                    "title": {"_text": book_metadata.get("title", "Unknown Title")},
+                    "id": {"_text": book.get("id")},
+                    "content": {
+                        "_attrs": {"type": "xhtml"},
+                        "_text": content_text
+                    },
+                    "author": {
+                        "name": {"_text": book_metadata.get("authorName", "Unknown Author")}
+                    },
+                    "link": [
+                        {
+                            "_attrs": {
+                                "href": download_path,
+                                "rel": "http://opds-spec.org/acquisition",
+                                "type": f"application/{ebook_format or 'epub'}+zip"
+                            }
+                        },
+                        {
+                            "_attrs": {
+                                "href": cover_url,
+                                "rel": "http://opds-spec.org/image",
+                                "type": "image/jpeg"
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            # Add series info if filtering by series
             if query_filter.startswith("series"):
-                series_number = book_metadata.get('series',{}).get("sequence","")
-                series_name = book_metadata.get('series',{}).get("name","")
-                entry_series = etree.SubElement(entry, "author")
-                entry_series_name = etree.SubElement(entry_series, "name")
-                entry_series_name.text = f" - {series_name} #{series_number}"
-            etree.SubElement(
-                 entry,
-                 "link",
-                 href=download_path,
-                 rel="http://opds-spec.org/acquisition",
-                 type=f"application/{ebook_format or 'epub'}+zip"
-             )
-            etree.SubElement(
-                entry,
-                "link",
-                href=cover_url,
-                rel="http://opds-spec.org/image",
-                type="image/jpeg"
-            )
+                series_number = book_metadata.get('series', {}).get("sequence", "")
+                series_name = book_metadata.get('series', {}).get("name", "")
+                entry_data["entry"]["series"] = {
+                    "name": {"_text": f" - {series_name} #{series_number}"}
+                }
+            
+            # Convert the dictionary to XML elements
+            dict_to_xml(feed, entry_data)
             
     def create_filter(self, abs_filter=None):
         """Create a filter to be used by Audiobookshelf"""

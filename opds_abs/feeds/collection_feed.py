@@ -5,6 +5,7 @@ from lxml import etree
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API
+from opds_abs.utils import dict_to_xml
 
 logger = logging.getLogger(__name__)
 
@@ -14,14 +15,6 @@ class CollectionFeedGenerator(BaseFeedGenerator):
     def add_collection_to_feed(self, username, library_id, feed, collection):
         """Add a collection to the feed"""
         try:
-            entry = etree.SubElement(feed, "entry")
-            
-            entry_title = etree.SubElement(entry, "title")
-            entry_title.text = collection.get("name", "Unknown collection name")
-            
-            entry_id = etree.SubElement(entry, "id")
-            entry_id.text = collection.get("id", "unknown_id")
-            
             # Get the first book with an ebook to use for the cover
             cover_url = "/static/images/collections.png"
             
@@ -37,27 +30,37 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                         book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
                         cover_url = f"{book_path}/cover?format=jpeg"
             
-            # Create an entry about the collection with the accurate count
-            entry_content = etree.SubElement(entry, "content")
+            # Get the book count for the entry content
             book_count = len(books_with_ebooks)
-            entry_content.text = f"Collection with {book_count} ebook{'s' if book_count != 1 else ''}"
             
-            # Direct link to the collection using the collection parameter
-            etree.SubElement(
-                entry,
-                "link",
-                href=f"/opds/{username}/libraries/{library_id}/items?collection={collection.get('id', '')}",
-                rel="subsection",
-                type="application/atom+xml"
-            )
+            # Create entry data structure
+            entry_data = {
+                "entry": {
+                    "title": {"_text": collection.get("name", "Unknown collection name")},
+                    "id": {"_text": collection.get("id", "unknown_id")},
+                    "content": {"_text": f"Collection with {book_count} ebook{'s' if book_count != 1 else ''}"},
+                    "link": [
+                        {
+                            "_attrs": {
+                                "href": f"/opds/{username}/libraries/{library_id}/items?collection={collection.get('id', '')}",
+                                "rel": "subsection",
+                                "type": "application/atom+xml"
+                            }
+                        },
+                        {
+                            "_attrs": {
+                                "href": cover_url,
+                                "rel": "http://opds-spec.org/image",
+                                "type": "image/jpeg"
+                            }
+                        }
+                    ]
+                }
+            }
             
-            etree.SubElement(
-                entry,
-                "link",
-                href=cover_url,
-                rel="http://opds-spec.org/image",
-                type="image/jpeg"
-            )
+            # Convert dictionary to XML elements
+            dict_to_xml(feed, entry_data)
+            
         except Exception as e:
             logger.error(f"Error adding collection to feed: {str(e)}")
     
@@ -99,10 +102,13 @@ class CollectionFeedGenerator(BaseFeedGenerator):
 
             # Create the feed
             feed = self.create_base_feed(username, library_id)
-            feed_id = etree.SubElement(feed, "id")
-            feed_id.text = library_id
-            title = etree.SubElement(feed, "title")
-            title.text = f"{username}'s collections"
+            
+            # Add feed metadata using dictionary approach
+            feed_data = {
+                "id": {"_text": library_id},
+                "title": {"_text": f"{username}'s collections"}
+            }
+            dict_to_xml(feed, feed_data)
 
             # Add each collection to the feed
             for collection in filtered_collections:
@@ -115,10 +121,14 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             
             # Return a basic feed with an error message
             feed = self.create_base_feed(username, library_id)
-            error_title = etree.SubElement(feed, "title")
-            error_title.text = "Error generating collections feed"
-            error_entry = etree.SubElement(feed, "entry")
-            error_content = etree.SubElement(error_entry, "content")
-            error_content.text = f"An error occurred: {str(e)}"
+            
+            # Create error message using dictionary approach
+            error_data = {
+                "title": {"_text": "Error generating collections feed"},
+                "entry": {
+                    "content": {"_text": f"An error occurred: {str(e)}"}
+                }
+            }
+            dict_to_xml(feed, error_data)
             
             return self.create_response(feed)

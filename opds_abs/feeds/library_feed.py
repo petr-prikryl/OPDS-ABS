@@ -5,6 +5,7 @@ from fastapi.responses import RedirectResponse
 
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
+from opds_abs.utils import dict_to_xml
 
 class LibraryFeedGenerator(BaseFeedGenerator):
     """Generator for library items feed"""
@@ -15,8 +16,13 @@ class LibraryFeedGenerator(BaseFeedGenerator):
 
         data = await fetch_from_api("/libraries")
         feed = self.create_base_feed()
-        title = etree.SubElement(feed, "title")
-        title.text = f"{username}'s Libraries"
+        
+        # Add feed title using dictionary approach
+        feed_data = {
+            "title": {"_text": f"{username}'s Libraries"}
+        }
+        dict_to_xml(feed, feed_data)
+        
         libraries = data.get("libraries", [])
         if len(libraries) == 1:
             return RedirectResponse(
@@ -25,19 +31,31 @@ class LibraryFeedGenerator(BaseFeedGenerator):
             )
 
         for library in libraries:
-            entry = etree.SubElement(feed, "entry")
-            entry_title = etree.SubElement(entry, "title")
-            entry_title.text = library["name"]
-            etree.SubElement(entry, "link",
-                             href=f"/opds/{username}/libraries/{library['id']}",
-                             rel="subsection",
-                             type="application/atom+xml"
-            )
-            etree.SubElement(entry, "link",
-                             href="/static/images/libraries.png",
-                             rel="http://opds-spec.org/image",
-                             type="image/png"
-            )
+            # Create entry data structure
+            entry_data = {
+                "entry": {
+                    "title": {"_text": library["name"]},
+                    "link": [
+                        {
+                            "_attrs": {
+                                "href": f"/opds/{username}/libraries/{library['id']}",
+                                "rel": "subsection",
+                                "type": "application/atom+xml"
+                            }
+                        },
+                        {
+                            "_attrs": {
+                                "href": "/static/images/libraries.png",
+                                "rel": "http://opds-spec.org/image",
+                                "type": "image/png"
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            # Convert dictionary to XML elements
+            dict_to_xml(feed, entry_data)
 
         return self.create_response(feed)
         
@@ -109,13 +127,16 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                         
                         # Generate feed using these books directly
                         feed = self.create_base_feed(username, library_id)
-                        feed_id = etree.SubElement(feed, "id")
-                        feed_id.text = library_id
-                        feed_author = etree.SubElement(feed, "author")
-                        feed_author_name = etree.SubElement(feed_author, "name")
-                        feed_author_name.text = "OPDS Audiobookshelf"
-                        title = etree.SubElement(feed, "title")
-                        title.text = f"{username}'s books in collection: {collection_data.get('name', 'Unknown')}"
+                        
+                        # Create feed metadata using dictionary approach
+                        feed_data = {
+                            "id": {"_text": library_id},
+                            "author": {
+                                "name": {"_text": "OPDS Audiobookshelf"}
+                            },
+                            "title": {"_text": f"{username}'s books in collection: {collection_data.get('name', 'Unknown')}"}
+                        }
+                        dict_to_xml(feed, feed_data)
                         
                         # Get ebook files for each book
                         tasks = []
@@ -141,13 +162,16 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         data = await fetch_from_api(f"/libraries/{library_id}/items", params)
 
         feed = self.create_base_feed(username, library_id)
-        feed_id = etree.SubElement(feed, "id")
-        feed_id.text = library_id
-        feed_author = etree.SubElement(feed, "author")
-        feed_author_name = etree.SubElement(feed_author, "name")
-        feed_author_name.text = "OPDS Audiobookshelf"
-        title = etree.SubElement(feed, "title")
-        title.text = f"{username}'s books"
+        
+        # Create feed metadata using dictionary approach
+        feed_data = {
+            "id": {"_text": library_id},
+            "author": {
+                "name": {"_text": "OPDS Audiobookshelf"}
+            },
+            "title": {"_text": f"{username}'s books"}
+        }
+        dict_to_xml(feed, feed_data)
 
         library_items = self.filter_items(data)
 
