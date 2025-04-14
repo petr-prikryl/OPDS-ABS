@@ -10,14 +10,15 @@ import time
 from urllib.parse import unquote
 
 # Third-party imports
-from fastapi import FastAPI, Request, HTTPException, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, Response, Depends
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 # Local application imports
-from opds_abs.config import LOG_LEVEL
+from opds_abs.config import LOG_LEVEL, AUTH_ENABLED
 from opds_abs.feeds.library_feed import LibraryFeedGenerator
 from opds_abs.feeds.navigation_feed import NavigationFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
@@ -26,11 +27,13 @@ from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.search_feed import SearchFeedGenerator
 from opds_abs.utils.cache_utils import _cache, clear_cache
 from opds_abs.api.client import invalidate_cache
+from opds_abs.utils.auth_utils import get_authenticated_user, require_auth
 from opds_abs.utils.error_utils import (
     OPDSBaseException,
     ResourceNotFoundError,
     FeedGenerationError,
     CacheError,
+    AuthenticationError,
     handle_exception,
     convert_to_http_exception,
     log_error
@@ -108,7 +111,11 @@ author_feed = AuthorFeedGenerator()
 search_feed = SearchFeedGenerator()
 
 # Create FastAPI app
-app = FastAPI()
+app = FastAPI(
+    title="OPDS-ABS",
+    description="OPDS server for Audiobookshelf",
+    version="0.1.0"
+)
 
 # Mount static files directory
 app.mount("/static", StaticFiles(directory="opds_abs/static"), name="static")
@@ -165,25 +172,66 @@ def index(request: Request):
             detail="Failed to render index page") from e
 
 
+@app.get("/opds", response_class=RedirectResponse)
+async def opds_root_redirect(
+    request: Request,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
+    """Redirect to the authenticated user's OPDS root.
+    
+    Args:
+        request (Request): The incoming request object.
+        auth_info (tuple): The authentication info (username, token, display_name).
+        
+    Returns:
+        RedirectResponse: Redirect to the user's OPDS root.
+    """
+    username, token, display_name = auth_info
+    
+    if not username:
+        # If not authenticated, return a 401 with WWW-Authenticate header
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
+        )
+    
+    # Redirect to the user's OPDS root
+    return RedirectResponse(url=f"/opds/{display_name}")
+
+
 @app.get("/opds/{username}/libraries/{library_id}/search.xml", response_class=HTMLResponse)
-def search_xml(username: str, library_id: str, request: Request):
+async def search_xml(
+    username: str, 
+    library_id: str, 
+    request: Request,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Render the search XML template.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to search in.
         request (Request): The incoming request object.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         HTMLResponse: The rendered search.xml template.
     """
     try:
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/search.xml")
+        
         params = dict(request.query_params)
         return templates.TemplateResponse("search.xml", {
             "request": request, 
-            "username": username, 
+            "username": display_name if auth_username else username, 
             "library_id": library_id, 
-            "searchTerms": params.get('q', '')
+            "searchTerms": params.get('q', ''),
+            "token": token  # Add token to the template context
         })
     except Exception as e:
         log_error(e, context=f"Rendering search XML for user {username}, library {library_id}")
@@ -192,17 +240,33 @@ def search_xml(username: str, library_id: str, request: Request):
 
 
 @app.get("/opds/{username}")
-async def opds_root(username: str):
+async def opds_root(
+    username: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get the root OPDS feed for a user.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The root feed listing available libraries.
     """
     try:
-        return await library_feed.generate_root_feed(username)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await library_feed.generate_root_feed(
+            effective_username, 
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -213,18 +277,36 @@ async def opds_root(username: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}")
-async def opds_nav(username: str, library_id: str):
+async def opds_nav(
+    username: str, 
+    library_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get the navigation feed for a library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get navigation for.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The navigation feed for the specified library.
     """
     try:
-        return await navigation_feed.generate_nav_feed(username, library_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await navigation_feed.generate_nav_feed(
+            effective_username, 
+            library_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -235,20 +317,45 @@ async def opds_nav(username: str, library_id: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/search")
-async def opds_search(username: str, library_id: str, request: Request):
+async def opds_search(
+    username: str, 
+    library_id: str, 
+    request: Request,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Search for items in a library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to search in.
         request (Request): The incoming request object containing search parameters.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The search results feed.
     """
     try:
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            # Preserve search parameters in the redirect
+            params_str = "&".join([f"{k}={v}" for k, v in request.query_params.items()])
+            redirect_url = f"/opds/{display_name}/libraries/{library_id}/search"
+            if params_str:
+                redirect_url += f"?{params_str}"
+            return RedirectResponse(url=redirect_url)
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
         params = dict(request.query_params)
-        return await search_feed.generate_search_feed(username, library_id, params)
+        return await search_feed.generate_search_feed(
+            effective_username, 
+            library_id, 
+            params,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -259,20 +366,45 @@ async def opds_search(username: str, library_id: str, request: Request):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/items")
-async def opds_library(username: str, library_id: str, request: Request):
+async def opds_library(
+    username: str, 
+    library_id: str, 
+    request: Request,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get items from a specific library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         request (Request): The incoming request object containing filter parameters.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The items feed for the specified library.
     """
     try:
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            # Preserve query parameters in the redirect
+            params_str = "&".join([f"{k}={v}" for k, v in request.query_params.items()])
+            redirect_url = f"/opds/{display_name}/libraries/{library_id}/items"
+            if params_str:
+                redirect_url += f"?{params_str}"
+            return RedirectResponse(url=redirect_url)
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
         params = dict(request.query_params)
-        return await library_feed.generate_library_items_feed(username, library_id, params)
+        return await library_feed.generate_library_items_feed(
+            effective_username, 
+            library_id, 
+            params,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -283,18 +415,36 @@ async def opds_library(username: str, library_id: str, request: Request):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/series")
-async def opds_series(username: str, library_id: str):
+async def opds_series(
+    username: str, 
+    library_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get series from a specific library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get series from.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The series feed for the specified library.
     """
     try:
-        return await series_feed.generate_series_feed(username, library_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/series")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await series_feed.generate_series_feed(
+            effective_username, 
+            library_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -305,19 +455,39 @@ async def opds_series(username: str, library_id: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/series/{series_id}")
-async def opds_series_items(username: str, library_id: str, series_id: str):
+async def opds_series_items(
+    username: str, 
+    library_id: str, 
+    series_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get items from a specific series using cached data when possible.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         series_id (str): ID of the series to filter by.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The items feed for books in the specified series.
     """
     try:
-        return await series_feed.generate_series_items_feed(username, library_id, series_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/series/{series_id}")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await series_feed.generate_series_items_feed(
+            effective_username, 
+            library_id, 
+            series_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -328,18 +498,36 @@ async def opds_series_items(username: str, library_id: str, series_id: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/collections")
-async def opds_collections(username: str, library_id: str):
+async def opds_collections(
+    username: str, 
+    library_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get collections from a specific library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get collections from.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The collections feed for the specified library.
     """
     try:
-        return await collection_feed.generate_collections_feed(username, library_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/collections")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await collection_feed.generate_collections_feed(
+            effective_username, 
+            library_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -350,19 +538,39 @@ async def opds_collections(username: str, library_id: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/collections/{collection_id}")
-async def opds_collection_items(username: str, library_id: str, collection_id: str):
+async def opds_collection_items(
+    username: str, 
+    library_id: str, 
+    collection_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get items from a specific collection using cached data when possible.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         collection_id (str): ID of the collection to filter by.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The items feed for books in the specified collection.
     """
     try:
-        return await collection_feed.generate_collection_items_feed(username, library_id, collection_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/collections/{collection_id}")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await collection_feed.generate_collection_items_feed(
+            effective_username, 
+            library_id, 
+            collection_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -373,18 +581,36 @@ async def opds_collection_items(username: str, library_id: str, collection_id: s
 
 
 @app.get("/opds/{username}/libraries/{library_id}/authors")
-async def opds_authors(username: str, library_id: str):
+async def opds_authors(
+    username: str, 
+    library_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get authors from a specific library.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get authors from.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The authors feed for the specified library.
     """
     try:
-        return await author_feed.generate_authors_feed(username, library_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/authors")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await author_feed.generate_authors_feed(
+            effective_username, 
+            library_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -395,19 +621,39 @@ async def opds_authors(username: str, library_id: str):
 
 
 @app.get("/opds/{username}/libraries/{library_id}/authors/{author_id}")
-async def opds_author_items(username: str, library_id: str, author_id: str):
+async def opds_author_items(
+    username: str, 
+    library_id: str, 
+    author_id: str,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
     """Get items from a specific author using cached data when possible.
     
     Args:
-        username (str): The username of the authenticated user.
+        username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         author_id (str): ID of the author to filter by.
+        auth_info (tuple): The authentication info (username, token, display_name).
         
     Returns:
         Response: The items feed for books by the specified author.
     """
     try:
-        return await author_feed.generate_author_items_feed(username, library_id, author_id)
+        auth_username, token, display_name = auth_info
+        
+        # Ensure this is the authenticated user's feed or authentication is disabled
+        if AUTH_ENABLED and auth_username and username != display_name:
+            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/authors/{author_id}")
+        
+        # Use the display name from authentication if available
+        effective_username = display_name if auth_username else username
+        
+        return await author_feed.generate_author_items_feed(
+            effective_username, 
+            library_id, 
+            author_id,
+            token=token
+        )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
         raise
@@ -418,7 +664,7 @@ async def opds_author_items(username: str, library_id: str, author_id: str):
 
 
 @app.get("/admin/cache/stats")
-async def get_cache_stats():
+async def get_cache_stats(auth_info: tuple = Depends(require_auth)):
     """Get statistics about the cache.
     
     Returns:
@@ -457,7 +703,7 @@ async def get_cache_stats():
 
 
 @app.post("/admin/cache/clear")
-async def clear_all_cache():
+async def clear_all_cache(auth_info: tuple = Depends(require_auth)):
     """Clear all items in the cache.
     
     Returns:
@@ -473,7 +719,11 @@ async def clear_all_cache():
 
 
 @app.post("/admin/cache/invalidate")
-async def invalidate_specific_cache(endpoint: str = None, username: str = None):
+async def invalidate_specific_cache(
+    endpoint: str = None, 
+    username: str = None,
+    auth_info: tuple = Depends(require_auth)
+):
     """Invalidate cache for a specific endpoint.
     
     Args:

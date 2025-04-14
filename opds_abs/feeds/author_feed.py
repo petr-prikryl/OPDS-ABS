@@ -12,6 +12,7 @@ from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
+from opds_abs.utils.auth_utils import verify_user
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -35,7 +36,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         Inherits all attributes from BaseFeedGenerator.
     """
     
-    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused for filtering.
         
         This method fetches all library items and caches them so they can be 
@@ -44,6 +45,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to fetch items from.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
             
         Returns:
@@ -61,7 +63,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         # Not in cache or bypassing cache, fetch the data
         logger.debug(f"Fetching all library items for library {library_id}")
         items_params = {"limit": 10000, "expand": "media"}
-        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
         library_items = self.filter_items(data)
         
         # Store in cache for future use
@@ -69,23 +71,24 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         
         return library_items
         
-    async def filter_items_by_author_id(self, username, library_id, author_id):
+    async def filter_items_by_author_id(self, username, library_id, author_id, token=None):
         """Filter items by author ID using cached items when possible.
         
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library containing the items.
             author_id (str): ID of the author to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             list: Library items filtered by the specified author ID.
         """
         try:
             # Try to get all library items from cache first
-            library_items = await self.get_cached_library_items(username, library_id)
+            library_items = await self.get_cached_library_items(username, library_id, token=token)
             
             # Get author details to find the name
-            author_details = await self.get_author_details(username, library_id)
+            author_details = await self.get_author_details(username, library_id, token=token)
             author_name = None
             
             # Find author name by ID
@@ -98,7 +101,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 logger.warning(f"Could not find author name for ID {author_id}")
                 # Fall back to API call if we couldn't find the author name
                 params = {"filter": f"authors.{self.create_filter(author_id)}"}
-                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
                 return self.filter_items(data)
             
             logger.info(f"Filtering cached items by author: {author_name}")
@@ -120,30 +123,31 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             logger.error(f"Error filtering items by author: {e}")
             # Fall back to API call if there was an error
             params = {"filter": f"authors.{self.create_filter(author_id)}"}
-            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
             return self.filter_items(data)
     
-    async def generate_author_items_feed(self, username, library_id, author_id):
+    async def generate_author_items_feed(self, username, library_id, author_id, token=None):
         """Generate a feed of items by a specific author.
         
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate the feed for.
             author_id (str): The ID of the author to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
             # Verify the user exists
-            self.verify_user(username)
+            verify_user(username, token)
             
             # Get items filtered by author (using cache when possible)
-            library_items = await self.filter_items_by_author_id(username, library_id, author_id)
+            library_items = await self.filter_items_by_author_id(username, library_id, author_id, token=token)
             
             # Get author name
             author_name = "Unknown Author"
-            author_details = await self.get_author_details(username, library_id)
+            author_details = await self.get_author_details(username, library_id, token=token)
             for _, author in author_details.items():
                 if author.get("id") == author_id:
                     author_name = author.get("name")
@@ -178,11 +182,11 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             tasks = []
             for book in library_items:
                 book_id = book.get("id", "")
-                tasks.append(get_download_urls_from_item(book_id))
+                tasks.append(get_download_urls_from_item(book_id, token=token))
             
             ebook_inos_list = await asyncio.gather(*tasks)
             for book, ebook_inos in zip(library_items, ebook_inos_list):
-                self.add_book_to_feed(feed, book, ebook_inos, "")
+                self.add_book_to_feed(feed, book, ebook_inos, "", token)
             
             return self.create_response(feed)
             
@@ -194,7 +198,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             # Use handle_exception to return a standardized error response
             return handle_exception(e, context=context)
     
-    def add_author_to_feed(self, username, library_id, feed, author):
+    def add_author_to_feed(self, username, library_id, feed, author, token=None):
         """Add an author entry to the OPDS feed.
         
         Args:
@@ -202,6 +206,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             library_id (str): The ID of the library the author belongs to.
             feed (Element): The lxml Element object representing the feed.
             author (dict): Author information including name, id, and ebook_count.
+            token (str, optional): Authentication token for Audiobookshelf.
         
         Raises:
             FeedGenerationError: If there's an error adding the author to the feed.
@@ -219,6 +224,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             # Get ebook count
             book_count = author.get("ebook_count", 0)
             
+            # Create the base URL for the author's books
+            author_url = f"/opds/{username}/libraries/{library_id}/authors/{author_id}"
+            
+            # Add token to URL if provided
+            if token:
+                author_url += f"?token={token}"
+            
             # Create the entry data structure
             entry_data = {
                 "entry": {
@@ -228,7 +240,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                     "link": [
                         {
                             "_attrs": {
-                                "href": f"/opds/{username}/libraries/{library_id}/authors/{author_id}",
+                                "href": author_url,
                                 "rel": "subsection",
                                 "type": "application/atom+xml"
                             }
@@ -256,12 +268,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context)
             raise FeedGenerationError(f"Unexpected error adding author to feed: {str(e)}") from e
     
-    async def get_authors_with_ebooks(self, username, library_id):
+    async def get_authors_with_ebooks(self, username, library_id, token=None):
         """Get list of authors who have books with ebook files.
         
         Args:
             username (str): The username requesting the data.
             library_id (str): The ID of the library to search in.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             list: A list of dictionaries containing author information with ebook counts.
@@ -273,7 +286,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         try:
             # Get all library items with detailed info
             items_params = {"limit": 10000, "expand": "media"}
-            items_data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username)
+            items_data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
             
             if not items_data or "results" not in items_data:
                 logger.error("Failed to retrieve library items")
@@ -317,12 +330,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context)
             raise FeedGenerationError(f"Error processing authors with ebooks: {str(e)}") from e
     
-    async def get_author_details(self, username, library_id):
+    async def get_author_details(self, username, library_id, token=None):
         """Fetch detailed author information from the authors endpoint.
         
         Args:
             username (str): The username requesting the data.
             library_id (str): The ID of the library to get authors from.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             dict: A dictionary mapping author names to their detailed information.
@@ -334,7 +348,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         try:
             # Get all authors in the library
             authors_params = {"limit": 2000, "sort": "name"}
-            author_data = await fetch_from_api(f"/libraries/{library_id}/authors", authors_params, username=username)
+            author_data = await fetch_from_api(f"/libraries/{library_id}/authors", authors_params, username=username, token=token)
             
             if not author_data or "authors" not in author_data:
                 logger.error("Failed to retrieve authors data")
@@ -357,7 +371,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context)
             raise FeedGenerationError(f"Error processing author details: {str(e)}") from e
     
-    async def generate_authors_feed(self, username, library_id):
+    async def generate_authors_feed(self, username, library_id, token=None):
         """Generate an OPDS feed listing authors with ebooks.
         
         Creates an OPDS feed containing all authors in the specified library
@@ -367,13 +381,14 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate the feed for.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
             # Verify the user exists
-            self.verify_user(username)
+            verify_user(username, token)
             
             # Log the request
             logger.info(f"Fetching authors feed for user {username}, library {library_id}")
@@ -392,7 +407,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             try:
                 # First, get the list of authors who have ebooks
-                authors_with_ebooks = await self.get_authors_with_ebooks(username, library_id)
+                authors_with_ebooks = await self.get_authors_with_ebooks(username, library_id, token=token)
                 
                 if not authors_with_ebooks:
                     logger.warning("No authors with ebooks found")
@@ -406,7 +421,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                     return self.create_response(feed)
                 
                 # Get author details including images and other metadata
-                author_details = await self.get_author_details(username, library_id)
+                author_details = await self.get_author_details(username, library_id, token=token)
                 
                 # Merge the ebook count with the author details
                 authors_list = []
@@ -429,7 +444,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 
                 # Add each author to the feed
                 for author in authors_list:
-                    self.add_author_to_feed(username, library_id, feed, author)
+                    self.add_author_to_feed(username, library_id, feed, author, token)
                 
             except ResourceNotFoundError as e:
                 # Handle not found errors
