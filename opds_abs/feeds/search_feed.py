@@ -193,8 +193,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
             
             # Process each cached library item to find series and authors
             for item in cached_library_items:
-                media = item.get("media", {})
-                metadata = media.get("metadata", {})
+                metadata = item.get("media", {}).get("metadata", {})
                 
                 # Get author and series information
                 author_name = metadata.get("authorName")
@@ -206,8 +205,10 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 
                 # Only process series that are in our search results
                 for series in series_list:
+                    logger.debug(f"Processing series {series} for author {author_name}")
                     series_id = series.get("id")
                     if series_id and series_id in series_ids_with_ebooks:
+                        logger.debug(f"Found series {series} with {series_id}")
                         if series_id not in series_author_map:
                             series_author_map[series_id] = {"authors": {}, "most_common": None}
                         
@@ -236,11 +237,13 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 # If we couldn't find an author from series_author_map, try the series books
                 if not series_author:
                     # Try to get from the first book in the series from search results
-                    first_search_book = series.get('books', [])[0] if series.get('books') else None
-                    if first_search_book:
-                        search_book_author = first_search_book.get('media', {}).get('metadata', {}).get('authorName')
+                    series_books = series.get('books', [])
+                    # Try each book in the series until we find an author
+                    for search_book in series_books:
+                        search_book_author = search_book.get('media', {}).get('metadata', {}).get('authorName')
                         if search_book_author:
                             series_author = search_book_author
+                            break
                 
                 # If we still don't have an author, try to find books in the series from cached items
                 if not series_author:
@@ -251,17 +254,37 @@ class SearchFeedGenerator(BaseFeedGenerator):
                         for series_entry in metadata.get("series", []):
                             if series_entry.get("id") == series_id:
                                 series_books.append(item)
-                                break
-                    
-                    # If we found books, get the author from the first one
-                    if series_books:
-                        first_book_author = series_books[0].get("media", {}).get("metadata", {}).get("authorName")
-                        if first_book_author:
-                            series_author = first_book_author
+                                author_candidate = metadata.get("authorName")
+                                if author_candidate:
+                                    series_author = author_candidate
+                                    break
+                        if series_author:
+                            break
                 
                 # Set the author name in the series object
-                series["authorName"] = series_author or "Unknown Author"
-                
+                if series_author:
+                    series["authorName"] = series_author
+                else:
+                    # If all attempts failed, make one final attempt: 
+                    # fetch series details from API endpoint (already cached in SeriesFeedGenerator)
+                    series_gen = SeriesFeedGenerator()
+                    try:
+                        # Use series ID to access cached series details
+                        series_details = await series_gen.get_cached_series_details(username, library_id, series_id, token=token)
+                        if series_details:
+                            # Look for books and author info
+                            for book in series_details.get("books", []):
+                                author_name = book.get("media", {}).get("metadata", {}).get("authorName")
+                                if author_name:
+                                    series["authorName"] = author_name
+                                    break
+                    except Exception as e:
+                        logger.debug(f"Error fetching series details for author: {str(e)}")
+                    
+                    # Only use "Unknown Author" if absolutely necessary after all attempts
+                    if "authorName" not in series:
+                        series["authorName"] = "Unknown Author"
+                        logger.debug(f"Unable to find author for series: {series_name} (id: {series_id})")
                 # Add the series to the feed - this will use our cache-aware URL format
                 series_generator = SeriesFeedGenerator()
                 series_generator.add_series_to_feed(username, library_id, feed, series, token=token)

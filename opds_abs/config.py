@@ -17,6 +17,9 @@ API_KEY = os.getenv("AUDIOBOOKSHELF_API_KEY", "")
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
 AUTH_CACHE_EXPIRY = int(os.getenv("AUTH_CACHE_EXPIRY", "86400"))  # Default: 24 hours
 
+# Cache expiry times (in seconds)
+SERIES_DETAILS_CACHE_EXPIRY = int(os.getenv("SERIES_DETAILS_CACHE_EXPIRY", "3600"))  # Default: 1 hour
+
 # User credentials - will be deprecated in favor of Audiobookshelf authentication
 users_env = os.getenv("USERS", "")
 USER_KEYS = {}
