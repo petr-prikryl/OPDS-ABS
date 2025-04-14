@@ -1,17 +1,28 @@
 """Library items feed generator"""
+# Standard library imports
 import asyncio
+import logging
+
+# Third-party imports
 from lxml import etree
 from fastapi.responses import RedirectResponse
 
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.utils import dict_to_xml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class LibraryFeedGenerator(BaseFeedGenerator):
     """Generator for library items feed"""
     
     async def generate_root_feed(self, username):
         """Generate the root feed with libraries"""
+        # Test log message
+        logger.info(f"Generating root feed for user: {username}")
+        
         self.verify_user(username)
 
         data = await fetch_from_api("/libraries")
@@ -73,16 +84,8 @@ class LibraryFeedGenerator(BaseFeedGenerator):
             try:
                 # Directly fetch the collection with its books
                 collection_endpoint = f"/collections/{collection_id}"
-                print(f"Fetching collection from: {collection_endpoint}")
                 collection_data = await fetch_from_api(collection_endpoint)
-                
-                if collection_data:
-                    print(f"Successfully fetched collection: {collection_data.get('name')}")
-                    if 'books' in collection_data:
-                        print(f"Collection has {len(collection_data.get('books', []))} books")
-                    else:
-                        print("No books found in collection response")
-                
+                                
                 # Only proceed if we have collection data with books
                 if collection_data and collection_data.get("books"):
                     collection_books = collection_data.get("books", [])
@@ -114,9 +117,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                             
                         if has_ebook:
                             filtered_books.append(book)
-                    
-                    print(f"Found {len(filtered_books)} books with ebooks in collection")
-                    
+                                        
                     if filtered_books:
                         # Add sequence numbers for sorting
                         for i, book in enumerate(filtered_books, 1):
@@ -149,16 +150,13 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                             self.add_book_to_feed(feed, book, ebook_inos, params.get('filter',''))
                         
                         return self.create_response(feed)
-                    else:
-                        print("No books with ebooks found in this collection")
                     
             except Exception as e:
-                print(f"Error processing collection data: {e}")
+                logger.error(f"Error processing collection data: {e}")
                 import traceback
                 traceback.print_exc()
         
         # If not filtering by collection or collection processing failed, continue with normal flow
-        print("Using standard library items endpoint")
         data = await fetch_from_api(f"/libraries/{library_id}/items", params)
 
         feed = self.create_base_feed(username, library_id)
