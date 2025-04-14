@@ -1,12 +1,20 @@
 """Search feed generator"""
+# Standard library imports
+import logging
+
+# Third-party imports
 from lxml import etree
 from fastapi.responses import Response
+
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.utils import dict_to_xml
 
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class SearchFeedGenerator(BaseFeedGenerator):
     """Generator for search feed"""
@@ -177,7 +185,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
                             series["authorName"] = None
                     
                 except Exception as e:
-                    print(f"Error fetching series items: {e}")
+                    logger.error(f"Error fetching series items: {e}")
                     # Use the first book from the search results as a fallback
                     first_search_book = series.get('books', [])[0] if series.get('books') else None
                     if first_search_book:

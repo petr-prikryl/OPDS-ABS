@@ -1,19 +1,40 @@
 """Collections feed generator"""
+# Standard library imports
 import logging
+
+# Third-party imports
 from lxml import etree
 
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.error_utils import (
+    FeedGenerationError,
+    ResourceNotFoundError,
+    log_error,
+    handle_exception
+)
 
+# Set up logging
 logger = logging.getLogger(__name__)
 
 class CollectionFeedGenerator(BaseFeedGenerator):
     """Generator for collections feed"""
     
     def add_collection_to_feed(self, username, library_id, feed, collection):
-        """Add a collection to the feed"""
+        """Add a collection to the feed
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library.
+            feed (Element): The XML feed element to add the collection to.
+            collection (dict): The collection data.
+            
+        Raises:
+            FeedGenerationError: If there's an error adding the collection to the feed.
+        """
         try:
             # Get the first book with an ebook to use for the cover
             cover_url = "/static/images/collections.png"
@@ -61,11 +82,25 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             # Convert dictionary to XML elements
             dict_to_xml(feed, entry_data)
             
+        except (ValueError, KeyError) as e:
+            context = f"Adding collection {collection.get('name', 'unknown')} to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Failed to add collection to feed: {str(e)}") from e
         except Exception as e:
-            logger.error(f"Error adding collection to feed: {str(e)}")
+            context = f"Adding collection {collection.get('name', 'unknown')} to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Unexpected error adding collection to feed: {str(e)}") from e
     
     async def generate_collections_feed(self, username, library_id):
-        """Display all collections in the library that have books with ebook files"""
+        """Display all collections in the library that have books with ebook files
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library.
+            
+        Returns:
+            Response: A FastAPI response object containing the XML feed.
+        """
         try:
             self.verify_user(username)
             
@@ -73,8 +108,12 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collections_params = {"limit": 1000}
             data = await fetch_from_api(f"/libraries/{library_id}/collections", collections_params, username=username)
 
+            if not data or "results" not in data:
+                raise ResourceNotFoundError(f"No collections found for library {library_id}")
+
             # Filter collections to only include those with books that have ebook files
             filtered_collections = []
+            collection_errors = []
             
             for collection in data.get("results", []):
                 # We need to fetch each collection's books separately
@@ -94,8 +133,14 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                         if ebook_count > 0:
                             logger.info(f"Collection '{collection_data.get('name')}' has {ebook_count} ebooks")
                             filtered_collections.append(collection_data)
+                    except ResourceNotFoundError as e:
+                        context = f"Fetching collection {collection_id}"
+                        log_error(e, context=context, log_traceback=False)
+                        collection_errors.append(f"Collection {collection.get('name', collection_id)}: {str(e)}")
                     except Exception as e:
-                        logger.error(f"Error fetching collection {collection_id}: {e}")
+                        context = f"Fetching collection {collection_id}"
+                        log_error(e, context=context)
+                        collection_errors.append(f"Collection {collection.get('name', collection_id)}: {str(e)}")
             
             # Sort collections by name
             filtered_collections = sorted(filtered_collections, key=lambda x: x.get("name", "").lower())
@@ -113,22 +158,38 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             # Add each collection to the feed
             for collection in filtered_collections:
                 self.add_collection_to_feed(username, library_id, feed, collection)
+                
+            # If we have no collections but had errors, add an entry about the errors
+            if not filtered_collections and collection_errors:
+                error_message = "Some collections could not be retrieved:\n" + "\n".join(collection_errors)
+                error_data = {
+                    "entry": {
+                        "title": {"_text": "Error retrieving some collections"},
+                        "content": {"_text": error_message}
+                    }
+                }
+                dict_to_xml(feed, error_data)
 
             return self.create_response(feed)
         
-        except Exception as e:
-            logger.error(f"Error generating collections feed: {str(e)}")
+        except ResourceNotFoundError as e:
+            context = f"Generating collections feed for library {library_id}"
+            log_error(e, context=context, log_traceback=False)
             
-            # Return a basic feed with an error message
+            # Return a feed with the specific error
             feed = self.create_base_feed(username, library_id)
-            
-            # Create error message using dictionary approach
             error_data = {
-                "title": {"_text": "Error generating collections feed"},
+                "title": {"_text": "Collections not found"},
                 "entry": {
-                    "content": {"_text": f"An error occurred: {str(e)}"}
+                    "content": {"_text": str(e)}
                 }
             }
             dict_to_xml(feed, error_data)
-            
             return self.create_response(feed)
+        except Exception as e:
+            # Handle any other unexpected errors
+            context = f"Generating collections feed for user {username}, library {library_id}"
+            log_error(e, context=context)
+            
+            # Use handle_exception to return a standardized error response
+            return handle_exception(e, context=context)

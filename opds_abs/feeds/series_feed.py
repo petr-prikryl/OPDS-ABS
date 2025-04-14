@@ -1,10 +1,18 @@
 """Series feed generator"""
+# Standard library imports
+import logging
+
+# Third-party imports
 from lxml import etree
 
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed"""
@@ -37,10 +45,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # The search feed will directly set authorName, while series feed won't have this property
         from_search_feed = "authorName" in series
         
-        print(f"Adding series: {series.get('name')} " + 
-              f"with author: {series.get('authorName', 'None')} " +
-              f"(from search feed: {from_search_feed})")
-        
         # Get author name with proper fallback chain
         author_name = None
         raw_author_name = None
@@ -53,7 +57,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 raw_author_name = author_name[10:]  # Remove "Series by " prefix
             else:
                 raw_author_name = author_name
-            print(f"  Using authorName from series object: {author_name}")
         
         # Then try to get from first book's metadata
         elif first_book_metadata.get("authorName"):
@@ -63,7 +66,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 author_name = f"Series by {raw_author_name}"
             else:
                 author_name = raw_author_name
-            print(f"  Using author from first book metadata: {author_name}")
         
         # Finally fallback to a generic label
         else:
@@ -72,7 +74,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             else:
                 author_name = "Unknown Author"
             raw_author_name = author_name
-            print(f"  Using default author label: {author_name}")
         
         # Format the content based on the source
         content_text = ""

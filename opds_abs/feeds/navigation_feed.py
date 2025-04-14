@@ -1,15 +1,41 @@
 """Navigation feed generator"""
+# Standard library imports
+# None needed currently
+
+# Third-party imports
 from lxml import etree
 
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.core.navigation import navigation
 from opds_abs.utils import dict_to_xml
 
 class NavigationFeedGenerator(BaseFeedGenerator):
-    """Generator for navigation feed"""
+    """Generator for navigation feed.
+    
+    This class creates OPDS navigation feeds that present the main navigation
+    options for browsing Audiobookshelf content through OPDS clients.
+    
+    Attributes:
+        Inherits all attributes from BaseFeedGenerator.
+    """
     
     async def generate_nav_feed(self, username, library_id):
-        """Generate the navigation buttons under a library"""
+        """Generate the navigation buttons under a library.
+        
+        Creates an OPDS feed containing navigation entries for browsing content
+        in different ways (e.g., by authors, series, collections).
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library to generate navigation for.
+            
+        Returns:
+            Response: A FastAPI response object containing the XML feed.
+            
+        Raises:
+            HTTPException: If the user is not authorized or another error occurs.
+        """
         self.verify_user(username)
 
         feed = self.create_base_feed(username, library_id)

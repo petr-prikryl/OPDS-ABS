@@ -1,20 +1,47 @@
 """Authors feed generator"""
+# Standard library imports
 import logging
+
+# Third-party imports
 from lxml import etree
 
+# Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.error_utils import (
+    FeedGenerationError,
+    ResourceNotFoundError,
+    log_error,
+    handle_exception
+)
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 class AuthorFeedGenerator(BaseFeedGenerator):
-    """Generator for authors feed"""
+    """Generator for authors feed.
+    
+    This class creates OPDS feeds that list authors who have books with ebook files
+    in an Audiobookshelf library.
+    
+    Attributes:
+        Inherits all attributes from BaseFeedGenerator.
+    """
     
     def add_author_to_feed(self, username, library_id, feed, author):
-        """Add an author to the feed"""
+        """Add an author entry to the OPDS feed.
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library the author belongs to.
+            feed (Element): The lxml Element object representing the feed.
+            author (dict): Author information including name, id, and ebook_count.
+        
+        Raises:
+            FeedGenerationError: If there's an error adding the author to the feed.
+        """
         try:
             # Get a cover url if we have a book with an ebook
             cover_url = "/static/images/unknown-author.png"
@@ -57,11 +84,29 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             # Convert the dictionary to XML elements
             dict_to_xml(feed, entry_data)
             
+        except (ValueError, KeyError) as e:
+            context = f"Adding author {author.get('name', 'unknown')} to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Failed to add author to feed: {str(e)}") from e
         except Exception as e:
-            logger.error(f"Error adding author to feed: {str(e)}")
+            context = f"Adding author {author.get('name', 'unknown')} to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Unexpected error adding author to feed: {str(e)}") from e
     
     async def get_authors_with_ebooks(self, username, library_id):
-        """Get list of authors who have books with ebook files"""
+        """Get list of authors who have books with ebook files.
+        
+        Args:
+            username (str): The username requesting the data.
+            library_id (str): The ID of the library to search in.
+            
+        Returns:
+            list: A list of dictionaries containing author information with ebook counts.
+            
+        Raises:
+            ResourceNotFoundError: If no items data could be found.
+            FeedGenerationError: If there's an error processing the data.
+        """
         try:
             # Get all library items with detailed info
             items_params = {"limit": 10000, "expand": "media"}
@@ -69,7 +114,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             if not items_data or "results" not in items_data:
                 logger.error("Failed to retrieve library items")
-                return []
+                raise ResourceNotFoundError("Library items data not found")
                 
             # Dictionary to keep track of authors with ebooks
             authors_with_ebooks = {}
@@ -101,14 +146,28 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             logger.info(f"Found {len(authors_with_ebooks)} authors with ebooks")
             return list(authors_with_ebooks.values())
             
+        except ResourceNotFoundError:
+            # Re-raise ResourceNotFoundError
+            raise
         except Exception as e:
-            logger.error(f"Error finding authors with ebooks: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return []
+            context = f"Finding authors with ebooks in library {library_id}"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Error processing authors with ebooks: {str(e)}") from e
     
     async def get_author_details(self, username, library_id):
-        """Fetch detailed author information from the authors endpoint"""
+        """Fetch detailed author information from the authors endpoint.
+        
+        Args:
+            username (str): The username requesting the data.
+            library_id (str): The ID of the library to get authors from.
+            
+        Returns:
+            dict: A dictionary mapping author names to their detailed information.
+            
+        Raises:
+            ResourceNotFoundError: If author data could not be retrieved.
+            FeedGenerationError: If there's an error processing the author data.
+        """
         try:
             # Get all authors in the library
             authors_params = {"limit": 2000, "sort": "name"}
@@ -116,7 +175,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             if not author_data or "authors" not in author_data:
                 logger.error("Failed to retrieve authors data")
-                return {}
+                raise ResourceNotFoundError("Authors data not found")
                 
             # Create a dictionary of authors by name for quick lookup
             authors_dict = {}
@@ -127,14 +186,28 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             
             return authors_dict
             
+        except ResourceNotFoundError:
+            # Re-raise ResourceNotFoundError
+            raise
         except Exception as e:
-            logger.error(f"Error fetching author details: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return {}
+            context = f"Fetching author details for library {library_id}"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Error processing author details: {str(e)}") from e
     
     async def generate_authors_feed(self, username, library_id):
-        """Display all authors in the library that have books with ebook files"""
+        """Generate an OPDS feed listing authors with ebooks.
+        
+        Creates an OPDS feed containing all authors in the specified library
+        that have books with ebook files. Each entry includes the author's name,
+        image (if available), and link to their books.
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library to generate the feed for.
+            
+        Returns:
+            Response: A FastAPI response object containing the XML feed.
+        """
         try:
             # Verify the user exists
             self.verify_user(username)
@@ -195,16 +268,27 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 for author in authors_list:
                     self.add_author_to_feed(username, library_id, feed, author)
                 
-            except Exception as e:
-                logger.error(f"Error processing authors data: {str(e)}")
-                import traceback
-                traceback.print_exc()
+            except ResourceNotFoundError as e:
+                # Handle not found errors
+                context = f"Processing authors data for library {library_id}"
+                log_error(e, context=context, log_traceback=False)
                 
-                # Create a basic entry with error info
+                error_data = {
+                    "entry": {
+                        "title": {"_text": "Resource not found"},
+                        "content": {"_text": str(e)}
+                    }
+                }
+                dict_to_xml(feed, error_data)
+            except FeedGenerationError as e:
+                # Handle feed generation errors
+                context = f"Processing authors data for library {library_id}"
+                log_error(e, context=context)
+                
                 error_data = {
                     "entry": {
                         "title": {"_text": "Error processing authors"},
-                        "content": {"_text": f"An error occurred while processing author data: {str(e)}"}
+                        "content": {"_text": str(e)}
                     }
                 }
                 dict_to_xml(feed, error_data)
@@ -212,18 +296,9 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             return self.create_response(feed)
             
         except Exception as e:
-            logger.error(f"Error generating authors feed: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            # Handle any other unexpected errors
+            context = f"Generating authors feed for user {username}, library {library_id}"
+            log_error(e, context=context)
             
-            # Return a basic feed with an error message
-            feed = self.create_base_feed(username, library_id)
-            error_data = {
-                "title": {"_text": "Error generating authors feed"},
-                "entry": {
-                    "content": {"_text": f"An error occurred: {str(e)}"}
-                }
-            }
-            dict_to_xml(feed, error_data)
-            
-            return self.create_response(feed)
+            # Use handle_exception to return a standardized error response
+            return handle_exception(e, context=context)

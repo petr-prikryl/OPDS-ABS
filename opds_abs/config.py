@@ -15,3 +15,6 @@ for pair in users_env.split(","):
 
 # Default to the first API key if available
 API_KEY = next(iter(USER_KEYS.values()), "") if USER_KEYS else ""
+
+# Configure logging level from environment variable
+LOG_LEVEL = os.environ.get("OPDS_LOG_LEVEL", "INFO").upper()
