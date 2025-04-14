@@ -304,6 +304,29 @@ async def opds_series(username: str, library_id: str):
         return handle_exception(e, context=context)
 
 
+@app.get("/opds/{username}/libraries/{library_id}/series/{series_id}")
+async def opds_series_items(username: str, library_id: str, series_id: str):
+    """Get items from a specific series using cached data when possible.
+    
+    Args:
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library to get items from.
+        series_id (str): ID of the series to filter by.
+        
+    Returns:
+        Response: The items feed for books in the specified series.
+    """
+    try:
+        return await series_feed.generate_series_items_feed(username, library_id, series_id)
+    except ResourceNotFoundError as e:
+        # ResourceNotFoundError is already properly handled in the feed generator
+        raise
+    except Exception as e:
+        context = f"Generating series items feed for user {username}, library {library_id}, series {series_id}"
+        log_error(e, context=context)
+        return handle_exception(e, context=context)
+
+
 @app.get("/opds/{username}/libraries/{library_id}/collections")
 async def opds_collections(username: str, library_id: str):
     """Get collections from a specific library.
@@ -326,6 +349,29 @@ async def opds_collections(username: str, library_id: str):
         return handle_exception(e, context=context)
 
 
+@app.get("/opds/{username}/libraries/{library_id}/collections/{collection_id}")
+async def opds_collection_items(username: str, library_id: str, collection_id: str):
+    """Get items from a specific collection using cached data when possible.
+    
+    Args:
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library to get items from.
+        collection_id (str): ID of the collection to filter by.
+        
+    Returns:
+        Response: The items feed for books in the specified collection.
+    """
+    try:
+        return await collection_feed.generate_collection_items_feed(username, library_id, collection_id)
+    except ResourceNotFoundError as e:
+        # ResourceNotFoundError is already properly handled in the feed generator
+        raise
+    except Exception as e:
+        context = f"Generating collection items feed for user {username}, library {library_id}, collection {collection_id}"
+        log_error(e, context=context)
+        return handle_exception(e, context=context)
+
+
 @app.get("/opds/{username}/libraries/{library_id}/authors")
 async def opds_authors(username: str, library_id: str):
     """Get authors from a specific library.
@@ -344,6 +390,29 @@ async def opds_authors(username: str, library_id: str):
         raise
     except Exception as e:
         context = f"Generating authors feed for user {username}, library {library_id}"
+        log_error(e, context=context)
+        return handle_exception(e, context=context)
+
+
+@app.get("/opds/{username}/libraries/{library_id}/authors/{author_id}")
+async def opds_author_items(username: str, library_id: str, author_id: str):
+    """Get items from a specific author using cached data when possible.
+    
+    Args:
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library to get items from.
+        author_id (str): ID of the author to filter by.
+        
+    Returns:
+        Response: The items feed for books by the specified author.
+    """
+    try:
+        return await author_feed.generate_author_items_feed(username, library_id, author_id)
+    except ResourceNotFoundError as e:
+        # ResourceNotFoundError is already properly handled in the feed generator
+        raise
+    except Exception as e:
+        context = f"Generating author items feed for user {username}, library {library_id}, author {author_id}"
         log_error(e, context=context)
         return handle_exception(e, context=context)
 

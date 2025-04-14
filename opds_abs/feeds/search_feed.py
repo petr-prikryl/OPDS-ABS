@@ -12,12 +12,82 @@ from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Cache expiry for library items (in seconds)
+LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
+SEARCH_RESULTS_CACHE_EXPIRY = 600  # 10 minutes
+
 class SearchFeedGenerator(BaseFeedGenerator):
     """Generator for search feed"""
+    
+    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+        """Fetch and cache all library items that can be reused for filtering.
+        
+        This method fetches all library items and caches them so they can be 
+        reused when processing search results instead of making additional API calls.
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library to fetch items from.
+            bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
+            
+        Returns:
+            list: All filtered library items containing ebooks.
+        """
+        cache_key = _create_cache_key(f"/library-items-all/{library_id}", None, username)
+        
+        # Try to get from cache if not bypassing
+        if not bypass_cache:
+            cached_data = cache_get(cache_key, LIBRARY_ITEMS_CACHE_EXPIRY)
+            if cached_data is not None:
+                logger.debug(f"✓ Cache hit for all library items {library_id}")
+                return cached_data  # Return cached data
+        
+        # Not in cache or bypassing cache, fetch the data
+        logger.debug(f"Fetching all library items for library {library_id}")
+        items_params = {"limit": 10000, "expand": "media"}
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        library_items = self.filter_items(data)
+        
+        # Store in cache for future use
+        cache_set(cache_key, library_items)
+        
+        return library_items
+    
+    async def get_cached_search_results(self, username, library_id, query, bypass_cache=False):
+        """Fetch and cache search results to avoid repeated API calls for the same search query.
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library to search in.
+            query (str): The search query string.
+            bypass_cache (bool): Whether to bypass the cache and force a fresh search.
+            
+        Returns:
+            dict: The search results from Audiobookshelf API.
+        """
+        cache_key = _create_cache_key(f"/libraries/{library_id}/search", {"q": query}, username)
+        
+        # Try to get from cache if not bypassing
+        if not bypass_cache:
+            cached_data = cache_get(cache_key, SEARCH_RESULTS_CACHE_EXPIRY)
+            if cached_data is not None:
+                logger.debug(f"✓ Cache hit for search query: {query}")
+                return cached_data  # Return cached data
+        
+        # Not in cache or bypassing cache, perform the search
+        logger.debug(f"Performing search for query: {query}")
+        search_params = {"limit": 2000, "q": query}
+        search_data = await fetch_from_api(f"/libraries/{library_id}/search", search_params, username)
+        
+        # Store in cache for future use
+        cache_set(cache_key, search_data)
+        
+        return search_data
     
     async def generate_search_feed(self, username, library_id, params=None):
         """Search for books, series, and authors in the library"""
@@ -35,11 +105,11 @@ class SearchFeedGenerator(BaseFeedGenerator):
             feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
             return Response(content=feed_xml, media_type="application/atom+xml")
 
-        # Prepare search parameters
-        search_params = {"limit": 2000, "q": query}
+        # Call the search API endpoint with caching
+        search_data = await self.get_cached_search_results(username, library_id, query)
         
-        # Call the search API endpoint
-        search_data = await fetch_from_api(f"/libraries/{library_id}/search", search_params)
+        # Fetch cached library items once to be used for all operations
+        cached_library_items = await self.get_cached_library_items(username, library_id)
         
         # Create the base feed
         feed = self.create_base_feed()
@@ -91,23 +161,15 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 series_with_ebooks.append(series_obj)
                 series_ids_with_ebooks.add(series_data.get('id'))
         
-        # Only fetch library items if we have series with ebooks
+        # Only process series if we have series with ebooks
         if series_with_ebooks:
-            # Fetch all library items with ebooks for author lookup
-            items_params = {"limit": 2000, "sort": "media.metadata.title"}
-            items_data = await fetch_from_api(f"/libraries/{library_id}/items", items_params)
-            
-            # Create a map of series IDs to their most common author
+            # Create a map of series IDs to their most common author using cached items
             series_author_map = {}
             
-            # Process each library item to find series and authors
-            for item in items_data.get("results", []):
+            # Process each cached library item to find series and authors
+            for item in cached_library_items:
                 media = item.get("media", {})
                 metadata = media.get("metadata", {})
-                
-                # Skip if no ebook
-                if not (media.get("ebookFile") is not None or media.get("ebookFormat")):
-                    continue
                 
                 # Get author and series information
                 author_name = metadata.get("authorName")
@@ -141,69 +203,45 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 series_id = series.get('id')
                 series_name = series.get('name')
                 
-                # Instead of our previous approach, directly query the items endpoint with the series filter
-                # to get the books that are definitely in this series
-                filter_b64 = self.create_filter(series_id)
-                series_filter_param = {"filter": f"series.{filter_b64}", "sort": "media.metadata.series.number", "limit": 1}
+                # Find the author for this series from cached data
+                series_author = None
+                if series_id in series_author_map and series_author_map[series_id]["most_common"]:
+                    series_author = series_author_map[series_id]["most_common"]
                 
-                # Get the items for this specific series
-                try:
-                    series_items_data = await fetch_from_api(f"/libraries/{library_id}/items", series_filter_param)
-                    series_books = series_items_data.get("results", [])
-                    
-                    # If we found books in this series, use the author from the first book
-                    if series_books:
-                        first_book = series_books[0]
-                        first_book_author = first_book.get("media", {}).get("metadata", {}).get("authorName")
-                        
-                        if first_book_author:
-                            series["authorName"] = first_book_author
-                        else:
-                            # Fallback to first book in the search results if no author found
-                            first_search_book = series.get('books', [])[0] if series.get('books') else None
-                            if first_search_book:
-                                search_book_author = first_search_book.get('media', {}).get('metadata', {}).get('authorName')
-                                if search_book_author:
-                                    series["authorName"] = search_book_author
-                                else:
-                                    # No author found in first book
-                                    series["authorName"] = None
-                            else:
-                                # No books found
-                                series["authorName"] = None
-                    else:
-                        # No books found in the direct series query
-                        # Use the first book from the search results as a fallback
-                        first_search_book = series.get('books', [])[0] if series.get('books') else None
-                        if first_search_book:
-                            search_book_author = first_search_book.get('media', {}).get('metadata', {}).get('authorName')
-                            if search_book_author:
-                                series["authorName"] = search_book_author
-                            else:
-                                series["authorName"] = None
-                        else:
-                            series["authorName"] = None
-                    
-                except Exception as e:
-                    logger.error(f"Error fetching series items: {e}")
-                    # Use the first book from the search results as a fallback
+                # If we couldn't find an author from series_author_map, try the series books
+                if not series_author:
+                    # Try to get from the first book in the series from search results
                     first_search_book = series.get('books', [])[0] if series.get('books') else None
                     if first_search_book:
                         search_book_author = first_search_book.get('media', {}).get('metadata', {}).get('authorName')
                         if search_book_author:
-                            series["authorName"] = search_book_author
-                        else:
-                            series["authorName"] = None
-                    else:
-                        series["authorName"] = None
+                            series_author = search_book_author
                 
-                # Add the series to the feed
+                # If we still don't have an author, try to find books in the series from cached items
+                if not series_author:
+                    # Find books in this series from cached library items
+                    series_books = []
+                    for item in cached_library_items:
+                        metadata = item.get("media", {}).get("metadata", {})
+                        for series_entry in metadata.get("series", []):
+                            if series_entry.get("id") == series_id:
+                                series_books.append(item)
+                                break
+                    
+                    # If we found books, get the author from the first one
+                    if series_books:
+                        first_book_author = series_books[0].get("media", {}).get("metadata", {}).get("authorName")
+                        if first_book_author:
+                            series_author = first_book_author
+                
+                # Set the author name in the series object
+                series["authorName"] = series_author or "Unknown Author"
+                
+                # Add the series to the feed - this will use our cache-aware URL format
                 series_generator = SeriesFeedGenerator()
                 series_generator.add_series_to_feed(username, library_id, feed, series)
         
-        # Process authors - authors don't have books array in search results, so we need to fetch items
-        # with matching author names and filter for those with ebooks
-        # Create a set of author names from search results
+        # Process authors - using cached items to count ebooks per author
         search_author_names = set()
         author_data_by_name = {}
         
@@ -215,24 +253,18 @@ class SearchFeedGenerator(BaseFeedGenerator):
         
         # Only proceed if we found author names
         if search_author_names:
-            # Get all library items
-            items_params = {"limit": 2000, "sort": "media.metadata.authorName"}
-            items_data = await fetch_from_api(f"/libraries/{library_id}/items", items_params)
-            
-            # Dictionary to count ebooks per author
+            # Dictionary to count ebooks per author using cached items
             author_ebook_counts = {}
             
-            # Check each item to see if it matches our search authors and has an ebook
-            for item in items_data.get("results", []):
-                media = item.get("media", {})
-                if media.get("ebookFile") is not None or media.get("ebookFormat"):
-                    # Get author name from the item's metadata
-                    author_name = media.get("metadata", {}).get("authorName")
-                    if author_name and author_name in search_author_names:
-                        # Increment the ebook count for this author
-                        if author_name not in author_ebook_counts:
-                            author_ebook_counts[author_name] = 0
-                        author_ebook_counts[author_name] += 1
+            # Check each cached item to see if it matches our search authors and has an ebook
+            for item in cached_library_items:
+                # Get author name from the item's metadata
+                author_name = item.get("media", {}).get("metadata", {}).get("authorName")
+                if author_name and author_name in search_author_names:
+                    # Increment the ebook count for this author
+                    if author_name not in author_ebook_counts:
+                        author_ebook_counts[author_name] = 0
+                    author_ebook_counts[author_name] += 1
             
             # Now add each author that has books with ebooks to the feed
             for author_name, ebook_count in author_ebook_counts.items():
@@ -245,5 +277,4 @@ class SearchFeedGenerator(BaseFeedGenerator):
                     author_generator = AuthorFeedGenerator()
                     author_generator.add_author_to_feed(username, library_id, feed, author_data)
         
-        # Instead of calling etree.tostring directly, use the create_response method
         return self.create_response(feed)
