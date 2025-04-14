@@ -29,6 +29,46 @@ LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed"""
     
+    def get_most_common_author(self, items):
+        """Get the most common author from a list of items.
+        
+        Args:
+            items (list): List of library items.
+            
+        Returns:
+            str: Name of the most common author, or "Unknown Author" if not found.
+        """
+        # Collect all authors from all items
+        all_authors = []
+        
+        for item in items:
+            media = item.get("media", {})
+            metadata = media.get("metadata", {})
+            
+            authors = metadata.get("authors", [])
+            if authors:
+                # Add each author to our list
+                for author in authors:
+                    author_name = author.get("name", "")
+                    if author_name:
+                        all_authors.append(author_name)
+        
+        if not all_authors:
+            return "Unknown Author"
+        
+        # Count occurrences of each author
+        author_counts = {}
+        for author in all_authors:
+            if author in author_counts:
+                author_counts[author] += 1
+            else:
+                author_counts[author] = 1
+        
+        # Find the most common author
+        most_common_author = max(author_counts.items(), key=lambda x: x[1], default=("Unknown Author", 0))
+        
+        return most_common_author[0]
+    
     async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused for filtering.
         
@@ -90,7 +130,47 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         except Exception as e:
             logger.error(f"Error fetching series details: {e}")
             return None
+    
+    async def get_cached_series_details(self, username, library_id, series_id, token=None):
+        """Fetch and cache detailed information about a specific series.
         
+        This method caches series details to avoid redundant API calls when
+        the same series information is requested multiple times.
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library containing the series.
+            series_id (str): ID of the series to get details for.
+            token (str, optional): Authentication token for Audiobookshelf.
+            
+        Returns:
+            dict: Series details or None if not found.
+        """
+        from opds_abs.utils.cache_utils import cache_get, cache_set, _create_cache_key
+        from opds_abs.config import SERIES_DETAILS_CACHE_EXPIRY
+        import logging
+        
+        logger = logging.getLogger(__name__)
+        
+        # Create a cache key for this specific series
+        cache_key = _create_cache_key(f"/series-details/{library_id}/{series_id}", None, username)
+        
+        # Try to get from cache first
+        cached_data = cache_get(cache_key, SERIES_DETAILS_CACHE_EXPIRY)
+        if cached_data is not None:
+            logger.debug(f"✓ Cache hit for series details {series_id}")
+            return cached_data
+        
+        # Not in cache, fetch the data using the existing method
+        logger.debug(f"Fetching series details for series {series_id}")
+        series_details = await self.get_series_details(username, library_id, series_id, token=token)
+        
+        # Store in cache for future use if we found details
+        if series_details:
+            cache_set(cache_key, series_details)
+        
+        return series_details
+    
     async def filter_items_by_series_id(self, username, library_id, series_id, token=None):
         """Filter items by series ID using cached items when possible.
         
@@ -102,6 +182,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             
         Returns:
             list: Library items filtered by the specified series ID.
+            dict: Series details including name and most common author.
         """
         try:
             # Try to get all library items from cache first
@@ -116,7 +197,13 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 # Fall back to API call if we couldn't find the series name
                 params = {"filter": f"series.{self.create_filter(series_id)}"}
                 data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
-                return self.filter_items(data)
+                filtered_items = self.filter_items(data)
+                # Get the most common author from the filtered items
+                most_common_author = self.get_most_common_author(filtered_items)
+                # Update series details with author information
+                if series_details:
+                    series_details["authorName"] = most_common_author
+                return filtered_items, series_details
             
             logger.info(f"Filtering cached items by series: {series_name}")
             
@@ -139,8 +226,15 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 key=lambda x: x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0)
             )
             
-            logger.info(f"Found {len(sorted_items)} items in series {series_name}")
-            return sorted_items
+            # Get the most common author from the series items
+            most_common_author = self.get_most_common_author(sorted_items)
+            
+            # Update series details with author information
+            if series_details:
+                series_details["authorName"] = most_common_author
+            
+            logger.info(f"Found {len(sorted_items)} items in series {series_name} by {most_common_author}")
+            return sorted_items, series_details
             
         except Exception as e:
             logger.error(f"Error filtering items by series: {e}")
@@ -148,7 +242,12 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             params = {"filter": f"series.{self.create_filter(series_id)}", 
                       "sort": "media.metadata.series.number"}
             data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
-            return self.filter_items(data)
+            filtered_items = self.filter_items(data)
+            # Get the most common author from the filtered items
+            most_common_author = self.get_most_common_author(filtered_items)
+            # Create minimal series details with author information
+            series_details = {"id": series_id, "name": "Unknown Series", "authorName": most_common_author}
+            return filtered_items, series_details
     
     async def generate_series_items_feed(self, username, library_id, series_id, token=None):
         """Generate a feed of items in a specific series.
@@ -167,13 +266,14 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             verify_user(username, token)
             
             # Get items filtered by series (using cache when possible)
-            library_items = await self.filter_items_by_series_id(username, library_id, series_id, token=token)
-            
+            library_items, series_details = await self.filter_items_by_series_id(username, library_id, series_id, token=token)
+
             # Get series name
-            series_name = "Unknown Series"
-            series_details = await self.get_series_details(username, library_id, series_id, token=token)
-            if series_details:
-                series_name = series_details.get("name", "Unknown Series")
+            series_name = series_details.get("name", "Unknown Series") if series_details else "Unknown Series"
+            
+            # Get author name from series details
+            # This is already set in filter_items_by_series_id using get_most_common_author
+            author_name = series_details.get("authorName", "Unknown Author") if series_details else "Unknown Author"
             
             # Create the feed
             feed = self.create_base_feed(username, library_id)
@@ -184,7 +284,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 "author": {
                     "name": {"_text": "OPDS Audiobookshelf"}
                 },
-                "title": {"_text": f"{series_name} Series"}
+                "title": {"_text": f"{series_name} Series by {author_name}"}
             }
             
             # Convert feed metadata to XML
@@ -260,34 +360,31 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         author_name = None
         raw_author_name = None
         
-        # First try to use explicit authorName that should already be formatted from search feed
-        if series.get("authorName") and not series.get("authorName").endswith("None"):
+        # Always prioritize getting author from metadata if available,
+        # rather than trusting the potentially incorrect authorName from search
+        if first_book_metadata.get("authorName"):
+            raw_author_name = first_book_metadata.get("authorName")
+            if from_search_feed:
+                author_name = f"Series by {raw_author_name}"
+            else:
+                author_name = raw_author_name
+        # Only use the explicit authorName as a fallback
+        elif series.get("authorName") and not series.get("authorName").endswith("None"):
             author_name = series.get("authorName")
             # Extract raw author name (without "Series by " prefix) for atom:author element
             if author_name.startswith("Series by "):
                 raw_author_name = author_name[10:]  # Remove "Series by " prefix
             else:
                 raw_author_name = author_name
-        
-        # Then try to get from first book's metadata
-        elif first_book_metadata.get("authorName"):
-            raw_author_name = first_book_metadata.get("authorName")
-            # Format differently based on the source of the call
+        # Finally fallback to a generic label
+        else:
+            raw_author_name = "Unknown Author"
             if from_search_feed:
                 author_name = f"Series by {raw_author_name}"
             else:
                 author_name = raw_author_name
         
-        # Finally fallback to a generic label
-        else:
-            if from_search_feed:
-                author_name = "Unknown Series"
-            else:
-                author_name = "Unknown Author"
-            raw_author_name = author_name
-        
         # Format the content based on the source
-        content_text = ""
         if from_search_feed:
             # For search feed, ensure it starts with "Series by"
             if not author_name.startswith("Series by ") and not author_name == "Unknown Series":
