@@ -1,16 +1,30 @@
 """Base class for generating OPDS feeds"""
+# Standard library imports
 from base64 import b64encode
 from copy import deepcopy
-from lxml import etree
 from datetime import datetime
+
+# Third-party imports
+from lxml import etree
 from fastapi import HTTPException
 from fastapi.responses import Response
 
+# Local application imports
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.error_utils import (
+    ResourceNotFoundError, 
+    FeedGenerationError,
+    log_error
+)
 
 class BaseFeedGenerator:
-    """Base class for creating OPDS feed components"""
+    """Base class for creating OPDS feed components.
+    
+    This class provides the foundation for generating OPDS (Open Publication Distribution System)
+    feeds for Audiobookshelf content. It includes methods for creating feed structures, 
+    adding book entries, filtering content, and generating responses.
+    """
     
     def __init__(self):
         self.base_feed = etree.Element(
@@ -20,7 +34,15 @@ class BaseFeedGenerator:
         )
 
     def create_base_feed(self, username=None, library_id=None):
-        """Create a copy of the base feed"""
+        """Create a copy of the base feed with optional search link.
+        
+        Args:
+            username (str, optional): Username for personalized feed. Defaults to None.
+            library_id (str, optional): Library ID to associate with the feed. Defaults to None.
+            
+        Returns:
+            Element: An lxml Element object representing the base feed structure.
+        """
         base_feed = deepcopy(self.base_feed)
         if username and library_id:
             search_link = {
@@ -36,111 +58,207 @@ class BaseFeedGenerator:
         return base_feed
         
     def create_response(self, feed):
-        """Convert feed to XML and create a response"""
-        feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
-        return Response(content=feed_xml, media_type="application/atom+xml")
+        """Convert feed to XML and create a response.
+        
+        Args:
+            feed (Element): The lxml Element containing the complete feed.
+            
+        Returns:
+            Response: A FastAPI Response object with the XML content.
+        """
+        try:
+            feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
+            return Response(content=feed_xml, media_type="application/atom+xml")
+        except Exception as e:
+            log_error(e, context="Creating XML response")
+            raise FeedGenerationError("Failed to generate XML response") from e
         
     def verify_user(self, username):
-        """Verify that the username exists"""
+        """Verify that the username exists in the system.
+        
+        Args:
+            username (str): The username to verify.
+            
+        Raises:
+            ResourceNotFoundError: If the username is not found in USER_KEYS.
+        """
         if username not in USER_KEYS:
-            raise HTTPException(status_code=404, detail="User not found")
+            raise ResourceNotFoundError(f"User '{username}' not found")
             
     def add_book_to_feed(self, feed, book, ebook_inos, query_filter=""):
-        """Add a book to the feed"""
-        media = book.get("media", {})
-        # Extract ebook format - check both direct and nested paths (for search results)
-        ebook_format = media.get("ebookFormat", media.get("ebookFile", {}).get("ebookFormat"))
+        """Add a book to the feed with all its metadata.
         
-        for ebook in ebook_inos:
-            book_metadata = media.get("metadata", {})
-            book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
-            download_path = f"{book_path}/file/{ebook.get('ino')}/download?token={USER_KEYS.get(book.get('username'))}"
-            cover_url = f"{book_path}/cover?format=jpeg"
-            series_list = book_metadata.get("seriesName", None)
-            added_at = datetime.fromtimestamp(book.get('addedAt')/1000).strftime('%Y-%m-%d')
+        Args:
+            feed (Element): The lxml Element to add the book entry to.
+            book (dict): Dictionary containing book data.
+            ebook_inos (list): List of ebook identifier objects.
+            query_filter (str, optional): Filter string to customize the entry. Defaults to "".
+            
+        Raises:
+            FeedGenerationError: If there's an error adding the book to the feed.
+        """
+        try:
+            media = book.get("media", {})
+            # Extract ebook format - check both direct and nested paths (for search results)
+            ebook_format = media.get("ebookFormat", media.get("ebookFile", {}).get("ebookFormat"))
+            
+            for ebook in ebook_inos:
+                book_metadata = media.get("metadata", {})
+                book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
+                download_path = f"{book_path}/file/{ebook.get('ino')}/download?token={USER_KEYS.get(book.get('username'))}"
+                cover_url = f"{book_path}/cover?format=jpeg"
+                series_list = book_metadata.get("seriesName", None)
+                added_at = datetime.fromtimestamp(book.get('addedAt')/1000).strftime('%Y-%m-%d')
 
-            # Create the description content with HTML formatting
-            content_text = (
-                f"{book_metadata.get('description', '')}<br/><br/>"
-                f"{'Series: ' + series_list + '<br/>' if series_list else ''}"
-                f"Published year: {book_metadata.get('publishedYear')}<br/>"
-                f"Genres: {', '.join(book_metadata.get('genres', []))}<br/>"
-                f"Added at: {added_at}<br/>"
-            )
-            
-            # Build the entry data structure
-            entry_data = {
-                "entry": {
-                    "title": {"_text": book_metadata.get("title", "Unknown Title")},
-                    "id": {"_text": book.get("id")},
-                    "content": {
-                        "_attrs": {"type": "xhtml"},
-                        "_text": content_text
-                    },
-                    "author": {
-                        "name": {"_text": book_metadata.get("authorName", "Unknown Author")}
-                    },
-                    "link": [
-                        {
-                            "_attrs": {
-                                "href": download_path,
-                                "rel": "http://opds-spec.org/acquisition",
-                                "type": f"application/{ebook_format or 'epub'}+zip"
-                            }
+                # Create the description content with HTML formatting
+                content_text = (
+                    f"{book_metadata.get('description', '')}<br/><br/>"
+                    f"{'Series: ' + series_list + '<br/>' if series_list else ''}"
+                    f"Published year: {book_metadata.get('publishedYear')}<br/>"
+                    f"Genres: {', '.join(book_metadata.get('genres', []))}<br/>"
+                    f"Added at: {added_at}<br/>"
+                )
+                
+                # Build the entry data structure
+                entry_data = {
+                    "entry": {
+                        "title": {"_text": book_metadata.get("title", "Unknown Title")},
+                        "id": {"_text": book.get("id")},
+                        "content": {
+                            "_attrs": {"type": "xhtml"},
+                            "_text": content_text
                         },
-                        {
-                            "_attrs": {
-                                "href": cover_url,
-                                "rel": "http://opds-spec.org/image",
-                                "type": "image/jpeg"
+                        "author": {
+                            "name": {"_text": book_metadata.get("authorName", "Unknown Author")}
+                        },
+                        "link": [
+                            {
+                                "_attrs": {
+                                    "href": download_path,
+                                    "rel": "http://opds-spec.org/acquisition",
+                                    "type": f"application/{ebook_format or 'epub'}+zip"
+                                }
+                            },
+                            {
+                                "_attrs": {
+                                    "href": cover_url,
+                                    "rel": "http://opds-spec.org/image",
+                                    "type": "image/jpeg"
+                                }
                             }
-                        }
-                    ]
+                        ]
+                    }
                 }
-            }
-            
-            # Add series info if filtering by series
-            if query_filter.startswith("series"):
-                series_number = book_metadata.get('series', {}).get("sequence", "")
-                series_name = book_metadata.get('series', {}).get("name", "")
-                entry_data["entry"]["series"] = {
-                    "name": {"_text": f" - {series_name} #{series_number}"}
-                }
-            
-            # Convert the dictionary to XML elements
-            dict_to_xml(feed, entry_data)
-            
+                
+                # Add series info if filtering by series
+                if query_filter.startswith("series"):
+                    series_number = book_metadata.get('series', {}).get("sequence", "")
+                    series_name = book_metadata.get('series', {}).get("name", "")
+                    entry_data["entry"]["series"] = {
+                        "name": {"_text": f" - {series_name} #{series_number}"}
+                    }
+                
+                # Convert the dictionary to XML elements
+                dict_to_xml(feed, entry_data)
+                
+        except (ValueError, KeyError) as e:
+            book_title = book.get("media", {}).get("metadata", {}).get("title", "Unknown")
+            context = f"Adding book '{book_title}' to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Failed to add book to feed: {str(e)}") from e
+        except Exception as e:
+            book_title = book.get("media", {}).get("metadata", {}).get("title", "Unknown")
+            context = f"Adding book '{book_title}' to feed"
+            log_error(e, context=context)
+            raise FeedGenerationError(f"Unexpected error adding book to feed: {str(e)}") from e
+        
     def create_filter(self, abs_filter=None):
-        """Create a filter to be used by Audiobookshelf"""
-        return b64encode(abs_filter.encode("utf-8")).decode("utf-8")
+        """Create a base64-encoded filter to be used by Audiobookshelf.
+        
+        Args:
+            abs_filter (str, optional): Filter string to encode. Defaults to None.
+            
+        Returns:
+            str: Base64-encoded filter string.
+        """
+        try:
+            if abs_filter is None:
+                return ""
+            return b64encode(abs_filter.encode("utf-8")).decode("utf-8")
+        except Exception as e:
+            log_error(e, context="Creating base64 filter")
+            # Return empty string on error rather than raising exception
+            # since this is a utility function
+            return ""
         
     def filter_items(self, data):
-        """Find items in a library that have an ebook file, sorted by a field in a specific order"""
-        n = 1
-        filtered_results = []
-        for result in data.get("results", []):
-            media = result.get("media", {})
-            if "ebookFormat" in media and media.get("ebookFormat", None):
-                result.update({"opds_seq":n})
-                n += 1
-                filtered_results.append(result)
+        """Find items in a library that have an ebook file, sorted by a field in a specific order.
+        
+        Args:
+            data (dict): The data containing items to filter.
+            
+        Returns:
+            list: Filtered list of items that have ebook files.
+            
+        Raises:
+            FeedGenerationError: If there's an error filtering the items.
+        """
+        try:
+            n = 1
+            filtered_results = []
+            for result in data.get("results", []):
+                media = result.get("media", {})
+                if "ebookFormat" in media and media.get("ebookFormat", None):
+                    result.update({"opds_seq":n})
+                    n += 1
+                    filtered_results.append(result)
 
-        return filtered_results
+            return filtered_results
+        except Exception as e:
+            log_error(e, context="Filtering items for ebooks")
+            raise FeedGenerationError(f"Error filtering items: {str(e)}") from e
 
     def sort_results(self, data):
-        """Sort results"""
-        sorted_results = sorted(
-                data,
-                key=lambda x: x["opds_seq"],
-                reverse=False
-            )
-        return sorted_results
+        """Sort results based on the opds_seq field.
+        
+        Args:
+            data (list): List of items to sort.
+            
+        Returns:
+            list: Sorted list of items.
+            
+        Raises:
+            FeedGenerationError: If there's an error sorting the results.
+        """
+        try:
+            sorted_results = sorted(
+                    data,
+                    key=lambda x: x["opds_seq"],
+                    reverse=False
+                )
+            return sorted_results
+        except Exception as e:
+            log_error(e, context="Sorting results")
+            raise FeedGenerationError(f"Error sorting results: {str(e)}") from e
 
     def extract_value(self, item, path):
-        """Extract keys from a JSON path"""
-        keys = path.split('.')
-        for key in keys:
-            item = item.get(key, None)
-            if item is None:
-                break
-        return item
+        """Extract value from a nested dictionary using a dot-separated path.
+        
+        Args:
+            item (dict): The dictionary to extract values from.
+            path (str): Dot-separated path indicating where to find the value.
+            
+        Returns:
+            any: The extracted value, or None if the path doesn't exist.
+        """
+        try:
+            keys = path.split('.')
+            for key in keys:
+                item = item.get(key, None)
+                if item is None:
+                    break
+            return item
+        except Exception as e:
+            # Just log here but don't raise as this is a utility function
+            log_error(e, context=f"Extracting value from path {path}")
+            return None
