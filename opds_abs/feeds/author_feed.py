@@ -1,15 +1,17 @@
 """Authors feed generator"""
 # Standard library imports
 import logging
+import asyncio
 
 # Third-party imports
 from lxml import etree
 
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
-from opds_abs.api.client import fetch_from_api
+from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -20,6 +22,9 @@ from opds_abs.utils.error_utils import (
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Cache expiry for library items (in seconds)
+LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
+
 class AuthorFeedGenerator(BaseFeedGenerator):
     """Generator for authors feed.
     
@@ -29,6 +34,165 @@ class AuthorFeedGenerator(BaseFeedGenerator):
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
     """
+    
+    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+        """Fetch and cache all library items that can be reused for filtering.
+        
+        This method fetches all library items and caches them so they can be 
+        reused when filtering by author instead of making additional API calls.
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library to fetch items from.
+            bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
+            
+        Returns:
+            list: All filtered library items containing ebooks.
+        """
+        cache_key = _create_cache_key(f"/library-items-all/{library_id}", None, username)
+        
+        # Try to get from cache if not bypassing
+        if not bypass_cache:
+            cached_data = cache_get(cache_key, LIBRARY_ITEMS_CACHE_EXPIRY)
+            if cached_data is not None:
+                logger.debug(f"✓ Cache hit for all library items {library_id}")
+                return cached_data  # Return cached data
+        
+        # Not in cache or bypassing cache, fetch the data
+        logger.debug(f"Fetching all library items for library {library_id}")
+        items_params = {"limit": 10000, "expand": "media"}
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        library_items = self.filter_items(data)
+        
+        # Store in cache for future use
+        cache_set(cache_key, library_items)
+        
+        return library_items
+        
+    async def filter_items_by_author_id(self, username, library_id, author_id):
+        """Filter items by author ID using cached items when possible.
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library containing the items.
+            author_id (str): ID of the author to filter by.
+            
+        Returns:
+            list: Library items filtered by the specified author ID.
+        """
+        try:
+            # Try to get all library items from cache first
+            library_items = await self.get_cached_library_items(username, library_id)
+            
+            # Get author details to find the name
+            author_details = await self.get_author_details(username, library_id)
+            author_name = None
+            
+            # Find author name by ID
+            for _, author in author_details.items():
+                if author.get("id") == author_id:
+                    author_name = author.get("name")
+                    break
+            
+            if not author_name:
+                logger.warning(f"Could not find author name for ID {author_id}")
+                # Fall back to API call if we couldn't find the author name
+                params = {"filter": f"authors.{self.create_filter(author_id)}"}
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+                return self.filter_items(data)
+            
+            logger.info(f"Filtering cached items by author: {author_name}")
+            
+            # Filter the cached items by author name in-memory
+            filtered_items = []
+            for item in library_items:
+                media = item.get("media", {})
+                metadata = media.get("metadata", {})
+                
+                # Check if this item's author matches
+                if metadata.get("authorName") == author_name:
+                    filtered_items.append(item)
+            
+            logger.info(f"Found {len(filtered_items)} items by author {author_name}")
+            return filtered_items
+            
+        except Exception as e:
+            logger.error(f"Error filtering items by author: {e}")
+            # Fall back to API call if there was an error
+            params = {"filter": f"authors.{self.create_filter(author_id)}"}
+            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+            return self.filter_items(data)
+    
+    async def generate_author_items_feed(self, username, library_id, author_id):
+        """Generate a feed of items by a specific author.
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library to generate the feed for.
+            author_id (str): The ID of the author to filter by.
+            
+        Returns:
+            Response: A FastAPI response object containing the XML feed.
+        """
+        try:
+            # Verify the user exists
+            self.verify_user(username)
+            
+            # Get items filtered by author (using cache when possible)
+            library_items = await self.filter_items_by_author_id(username, library_id, author_id)
+            
+            # Get author name
+            author_name = "Unknown Author"
+            author_details = await self.get_author_details(username, library_id)
+            for _, author in author_details.items():
+                if author.get("id") == author_id:
+                    author_name = author.get("name")
+                    break
+            
+            # Create the feed
+            feed = self.create_base_feed(username, library_id)
+            
+            # Build the feed metadata
+            feed_data = {
+                "id": {"_text": library_id},
+                "author": {
+                    "name": {"_text": "OPDS Audiobookshelf"}
+                },
+                "title": {"_text": f"Books by {author_name}"}
+            }
+            
+            # Convert feed metadata to XML
+            dict_to_xml(feed, feed_data)
+            
+            if not library_items:
+                error_data = {
+                    "entry": {
+                        "title": {"_text": "No books found"},
+                        "content": {"_text": f"No books by {author_name} with ebooks were found in this library."}
+                    }
+                }
+                dict_to_xml(feed, error_data)
+                return self.create_response(feed)
+            
+            # Get ebook files for each book
+            tasks = []
+            for book in library_items:
+                book_id = book.get("id", "")
+                tasks.append(get_download_urls_from_item(book_id))
+            
+            ebook_inos_list = await asyncio.gather(*tasks)
+            for book, ebook_inos in zip(library_items, ebook_inos_list):
+                self.add_book_to_feed(feed, book, ebook_inos, "")
+            
+            return self.create_response(feed)
+            
+        except Exception as e:
+            # Handle any unexpected errors
+            context = f"Generating author items feed for author {author_id}"
+            log_error(e, context=context)
+            
+            # Use handle_exception to return a standardized error response
+            return handle_exception(e, context=context)
     
     def add_author_to_feed(self, username, library_id, feed, author):
         """Add an author entry to the OPDS feed.
@@ -48,10 +212,9 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             if author.get("imagePath"):
                 cover_url = f"{AUDIOBOOKSHELF_API}/authors/{author.get('id')}/image?format=jpeg"
             
-            # Create link to filter by author name
+            # Get author ID and name
+            author_id = author.get("id", "")
             author_name = author.get("name", "")
-            # Use authorName filter which is in media.metadata.authorName
-            author_filter = f"filter=authors.{self.create_filter(author.get('id'))}"
             
             # Get ebook count
             book_count = author.get("ebook_count", 0)
@@ -59,13 +222,13 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             # Create the entry data structure
             entry_data = {
                 "entry": {
-                    "title": {"_text": author.get("name", "Unknown author name")},
-                    "id": {"_text": author.get("id", "unknown_id")},
+                    "title": {"_text": author_name or "Unknown author name"},
+                    "id": {"_text": author_id or "unknown_id"},
                     "content": {"_text": f"Author with {book_count} ebook{'s' if book_count != 1 else ''}"},
                     "link": [
                         {
                             "_attrs": {
-                                "href": f"/opds/{username}/libraries/{library_id}/items?{author_filter}",
+                                "href": f"/opds/{username}/libraries/{library_id}/authors/{author_id}",
                                 "rel": "subsection",
                                 "type": "application/atom+xml"
                             }
