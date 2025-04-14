@@ -10,13 +10,14 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 
 # Local application imports
-from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
+from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS, AUTH_ENABLED
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.error_utils import (
     ResourceNotFoundError, 
     FeedGenerationError,
     log_error
 )
+from opds_abs.utils.auth_utils import AUTH_MATRIX, verify_user
 
 class BaseFeedGenerator:
     """Base class for creating OPDS feed components.
@@ -73,19 +74,7 @@ class BaseFeedGenerator:
             log_error(e, context="Creating XML response")
             raise FeedGenerationError("Failed to generate XML response") from e
         
-    def verify_user(self, username):
-        """Verify that the username exists in the system.
-        
-        Args:
-            username (str): The username to verify.
-            
-        Raises:
-            ResourceNotFoundError: If the username is not found in USER_KEYS.
-        """
-        if username not in USER_KEYS:
-            raise ResourceNotFoundError(f"User '{username}' not found")
-            
-    def add_book_to_feed(self, feed, book, ebook_inos, query_filter=""):
+    def add_book_to_feed(self, feed, book, ebook_inos, query_filter="", token=None):
         """Add a book to the feed with all its metadata.
         
         Args:
@@ -93,6 +82,7 @@ class BaseFeedGenerator:
             book (dict): Dictionary containing book data.
             ebook_inos (list): List of ebook identifier objects.
             query_filter (str, optional): Filter string to customize the entry. Defaults to "".
+            token (str, optional): Authentication token to use for download links.
             
         Raises:
             FeedGenerationError: If there's an error adding the book to the feed.
@@ -105,7 +95,16 @@ class BaseFeedGenerator:
             for ebook in ebook_inos:
                 book_metadata = media.get("metadata", {})
                 book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
-                download_path = f"{book_path}/file/{ebook.get('ino')}/download?token={USER_KEYS.get(book.get('username'))}"
+                
+                # Use the token for authentication if available, otherwise use API key
+                auth_param = ""
+                if token:
+                    auth_param = f"?token={token}"
+                elif book.get('username') in USER_KEYS:
+                    auth_param = f"?token={USER_KEYS.get(book.get('username'))}"
+                    
+                download_path = f"{book_path}/file/{ebook.get('ino')}/download{auth_param}"
+                # Cover URL doesn't need authentication
                 cover_url = f"{book_path}/cover?format=jpeg"
                 series_list = book_metadata.get("seriesName", None)
                 added_at = datetime.fromtimestamp(book.get('addedAt')/1000).strftime('%Y-%m-%d')

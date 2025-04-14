@@ -18,6 +18,7 @@ from opds_abs.utils.error_utils import (
     log_error,
     handle_exception
 )
+from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed"""
     
-    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused for filtering.
         
         This method fetches all library items and caches them so they can be 
@@ -37,6 +38,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to fetch items from.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
             
         Returns:
@@ -54,7 +56,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # Not in cache or bypassing cache, fetch the data
         logger.debug(f"Fetching all library items for library {library_id}")
         items_params = {"limit": 10000, "expand": "media"}
-        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
         library_items = self.filter_items(data)
         
         # Store in cache for future use
@@ -62,13 +64,14 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         
         return library_items
     
-    async def get_series_details(self, username, library_id, series_id):
+    async def get_series_details(self, username, library_id, series_id, token=None):
         """Fetch detailed information about a specific series.
         
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library containing the series.
             series_id (str): ID of the series to get details for.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             dict: Series details or None if not found.
@@ -76,7 +79,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         try:
             # First get all series to find the one we want
             series_params = {"limit": 2000, "sort": "name"}
-            data = await fetch_from_api(f"/libraries/{library_id}/series", series_params, username)
+            data = await fetch_from_api(f"/libraries/{library_id}/series", series_params, username=username, token=token)
             
             # Find the series with the matching ID
             for series in data.get("results", []):
@@ -88,30 +91,31 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             logger.error(f"Error fetching series details: {e}")
             return None
         
-    async def filter_items_by_series_id(self, username, library_id, series_id):
+    async def filter_items_by_series_id(self, username, library_id, series_id, token=None):
         """Filter items by series ID using cached items when possible.
         
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library containing the items.
             series_id (str): ID of the series to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             list: Library items filtered by the specified series ID.
         """
         try:
             # Try to get all library items from cache first
-            library_items = await self.get_cached_library_items(username, library_id)
+            library_items = await self.get_cached_library_items(username, library_id, token=token)
             
             # Get series details to find the name
-            series_details = await self.get_series_details(username, library_id, series_id)
+            series_details = await self.get_series_details(username, library_id, series_id, token=token)
             series_name = series_details.get("name") if series_details else None
             
             if not series_name:
                 logger.warning(f"Could not find series name for ID {series_id}")
                 # Fall back to API call if we couldn't find the series name
                 params = {"filter": f"series.{self.create_filter(series_id)}"}
-                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
                 return self.filter_items(data)
             
             logger.info(f"Filtering cached items by series: {series_name}")
@@ -143,30 +147,31 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             # Fall back to API call if there was an error
             params = {"filter": f"series.{self.create_filter(series_id)}", 
                       "sort": "media.metadata.series.number"}
-            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
             return self.filter_items(data)
     
-    async def generate_series_items_feed(self, username, library_id, series_id):
+    async def generate_series_items_feed(self, username, library_id, series_id, token=None):
         """Generate a feed of items in a specific series.
         
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate the feed for.
             series_id (str): The ID of the series to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
             # Verify the user exists
-            self.verify_user(username)
+            verify_user(username, token)
             
             # Get items filtered by series (using cache when possible)
-            library_items = await self.filter_items_by_series_id(username, library_id, series_id)
+            library_items = await self.filter_items_by_series_id(username, library_id, series_id, token=token)
             
             # Get series name
             series_name = "Unknown Series"
-            series_details = await self.get_series_details(username, library_id, series_id)
+            series_details = await self.get_series_details(username, library_id, series_id, token=token)
             if series_details:
                 series_name = series_details.get("name", "Unknown Series")
             
@@ -199,11 +204,11 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             tasks = []
             for book in library_items:
                 book_id = book.get("id", "")
-                tasks.append(get_download_urls_from_item(book_id))
+                tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
             
             ebook_inos_list = await asyncio.gather(*tasks)
             for book, ebook_inos in zip(library_items, ebook_inos_list):
-                self.add_book_to_feed(feed, book, ebook_inos, "")
+                self.add_book_to_feed(feed, book, ebook_inos, "", token)
             
             return self.create_response(feed)
             
@@ -232,8 +237,16 @@ class SeriesFeedGenerator(BaseFeedGenerator):
 
         return filtered_results
     
-    def add_series_to_feed(self, username, library_id, feed, series):
-        """Add a series to the feed"""
+    def add_series_to_feed(self, username, library_id, feed, series, token=None):
+        """Add a series to the feed
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library that contains the series.
+            feed (Element): The XML element to add the series to.
+            series (dict): Series information to add to the feed.
+            token (str, optional): Authentication token to include in links.
+        """
         first_book = series.get('books', [])[0] if series.get('books') else {}
         first_book_metadata = first_book.get('media', {}).get('metadata', {})
         book_path = f"{AUDIOBOOKSHELF_API}/items/{first_book.get('id','')}"
@@ -288,6 +301,11 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # Use the direct series route instead of query parameters
         series_id = series.get('id')
         
+        # Add token to the series link if provided
+        series_link = f"/opds/{username}/libraries/{library_id}/series/{series_id}"
+        if token:
+            series_link = f"{series_link}?token={token}"
+        
         # Create entry data structure
         entry_data = {
             "entry": {
@@ -300,7 +318,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 "link": [
                     {
                         "_attrs": {
-                            "href": f"/opds/{username}/libraries/{library_id}/series/{series_id}",
+                            "href": series_link,
                             "rel": "subsection",
                             "type": "application/atom+xml"
                         }
@@ -319,12 +337,21 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # Convert the dictionary to XML elements
         dict_to_xml(feed, entry_data)
     
-    async def generate_series_feed(self, username, library_id):
-        """Display all series in the library"""
-        self.verify_user(username)
+    async def generate_series_feed(self, username, library_id, token=None):
+        """Display all series in the library
+        
+        Args:
+            username (str): The username requesting the feed.
+            library_id (str): The ID of the library to generate the feed for.
+            token (str, optional): Authentication token for Audiobookshelf.
+            
+        Returns:
+            Response: A FastAPI response object containing the XML feed.
+        """
+        verify_user(username, token)
 
         series_params = {"limit": 2000, "sort": "name"}
-        data = await fetch_from_api(f"/libraries/{library_id}/series", series_params)
+        data = await fetch_from_api(f"/libraries/{library_id}/series", series_params, username=username, token=token)
 
         feed = self.create_base_feed(username, library_id)
         
@@ -340,6 +367,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         series_items = self.filter_series(data)
 
         for series in series_items:
-            self.add_series_to_feed(username, library_id, feed, series)
+            self.add_series_to_feed(username, library_id, feed, series, token)
 
         return self.create_response(feed)

@@ -13,6 +13,7 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
+from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -23,14 +24,22 @@ LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
 class LibraryFeedGenerator(BaseFeedGenerator):
     """Generator for library items feed"""
     
-    async def generate_root_feed(self, username):
-        """Generate the root feed with libraries"""
+    async def generate_root_feed(self, username, token=None):
+        """Generate the root feed with libraries
+        
+        Args:
+            username (str): The username of the authenticated user.
+            token (str, optional): Authentication token for Audiobookshelf.
+            
+        Returns:
+            Response: The root feed listing available libraries.
+        """
         # Test log message
         logger.info(f"Generating root feed for user: {username}")
         
-        self.verify_user(username)
+        verify_user(username, token)
 
-        data = await fetch_from_api("/libraries")
+        data = await fetch_from_api("/libraries", token=token, username=username)
         feed = self.create_base_feed()
         
         # Add feed title using dictionary approach
@@ -75,7 +84,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
 
         return self.create_response(feed)
         
-    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused by different feeds.
         
         This method fetches all library items and caches them so they can be 
@@ -84,6 +93,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to fetch items from.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
             
         Returns:
@@ -100,7 +110,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         
         # Not in cache or bypassing cache, fetch the data
         logger.debug(f"Fetching all library items for library {library_id}")
-        data = await fetch_from_api(f"/libraries/{library_id}/items", {})
+        data = await fetch_from_api(f"/libraries/{library_id}/items", {}, username=username, token=token)
         library_items = self.filter_items(data)
         
         # Store in cache for future use
@@ -109,9 +119,19 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         # Return a copy to prevent modifying the cached data
         return copy.deepcopy(library_items)
         
-    async def generate_library_items_feed(self, username, library_id, params=None):
-        """Display all items in the library"""
-        self.verify_user(username)
+    async def generate_library_items_feed(self, username, library_id, params=None, token=None):
+        """Display all items in the library
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library to fetch items from.
+            params (dict, optional): Query parameters for filtering and sorting.
+            token (str, optional): Authentication token for Audiobookshelf.
+            
+        Returns:
+            Response: The items feed for the specified library.
+        """
+        verify_user(username, token)
 
         params = params if params else {}
         
@@ -123,7 +143,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
             try:
                 # Directly fetch the collection with its books
                 collection_endpoint = f"/collections/{collection_id}"
-                collection_data = await fetch_from_api(collection_endpoint)
+                collection_data = await fetch_from_api(collection_endpoint, username=username, token=token)
                                 
                 # Only proceed if we have collection data with books
                 if collection_data and collection_data.get("books"):
@@ -182,11 +202,11 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                         tasks = []
                         for book in sorted_books:
                             book_id = book.get("id", "")
-                            tasks.append(get_download_urls_from_item(book_id))
+                            tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
                         
                         ebook_inos_list = await asyncio.gather(*tasks)
                         for book, ebook_inos in zip(sorted_books, ebook_inos_list):
-                            self.add_book_to_feed(feed, book, ebook_inos, params.get('filter',''))
+                            self.add_book_to_feed(feed, book, ebook_inos, params.get('filter',''), token=token)
                         
                         return self.create_response(feed)
                     
@@ -213,7 +233,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
             # For special feeds like "recent", we can reuse the cached library items
             # instead of making a new API call with different sort parameters
             logger.info(f"Using cached library items for {sort_param} feed")
-            library_items = await self.get_cached_library_items(username, library_id)
+            library_items = await self.get_cached_library_items(username, library_id, token=token)
             
             # Apply the requested sort order in memory
             if sort_param == 'addedAt':
@@ -233,7 +253,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         else:
             # For feeds with other filters or sorts, use the regular API call
             logger.info(f"Fetching library items from API with params: {params}")
-            data = await fetch_from_api(f"/libraries/{library_id}/items", params)
+            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
             library_items = self.filter_items(data)
 
         feed = self.create_base_feed(username, library_id)
@@ -251,10 +271,10 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         tasks = []
         for book in library_items:
             book_id = book.get("id", "")
-            tasks.append(get_download_urls_from_item(book_id))
+            tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
 
         ebook_inos_list = await asyncio.gather(*tasks)
         for book, ebook_inos in zip(library_items, ebook_inos_list):
-            self.add_book_to_feed(feed, book, ebook_inos, params.get('filter',''))
+            self.add_book_to_feed(feed, book, ebook_inos, params.get('filter',''), token=token)
 
         return self.create_response(feed)
