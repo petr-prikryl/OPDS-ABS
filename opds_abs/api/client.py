@@ -2,6 +2,7 @@
 # Standard library imports
 import asyncio
 import logging
+from typing import Optional, Dict, Any, Tuple
 
 # Third-party imports
 import aiohttp
@@ -35,17 +36,25 @@ CACHE_EXPIRY_MAPPING = {
     "/collections": COLLECTION_CACHE_EXPIRY,
 }
 
-async def fetch_from_api(endpoint: str, params: dict = None, username: str = None, bypass_cache: bool = False):
+async def fetch_from_api(
+    endpoint: str, 
+    params: Dict[str, Any] = None, 
+    username: str = None,
+    token: str = None,
+    bypass_cache: bool = False
+) -> Dict[str, Any]:
     """Fetch data from Audiobookshelf API with caching support.
     
-    Makes an authenticated request to the Audiobookshelf API using the appropriate API key.
-    Results are cached based on endpoint type to improve performance on subsequent calls.
+    Makes an authenticated request to the Audiobookshelf API using the appropriate 
+    authentication method (user token or API key). Results are cached based on 
+    endpoint type to improve performance on subsequent calls.
     
     Args:
         endpoint (str): The API endpoint to call (e.g., "/items/123").
-        params (dict, optional): Query parameters to include in the request. Defaults to None.
-        username (str, optional): Username to use for authentication. Defaults to None.
-        bypass_cache (bool, optional): If True, bypass cache and force a fresh API call. Defaults to False.
+        params (dict, optional): Query parameters to include in the request.
+        username (str, optional): Username to use for authentication.
+        token (str, optional): User-specific auth token from Audiobookshelf login.
+        bypass_cache (bool, optional): If True, bypass cache and force a fresh API call.
         
     Returns:
         dict: The JSON response data from the API.
@@ -53,13 +62,23 @@ async def fetch_from_api(endpoint: str, params: dict = None, username: str = Non
     Raises:
         HTTPException: If the API request fails or times out.
     """
-    # Use the specified user's API key if provided, otherwise use the default
-    api_key = USER_KEYS.get(username, API_KEY) if username else API_KEY
+    # Determine which authentication to use
+    # Priority: 1) Provided token, 2) User's API key from USER_KEYS, 3) Default API key
+    auth_header = ""
     
-    if not api_key:
-        error_msg = f"No API key available{'for user '+username if username else ''}"
-        logger.error(error_msg)
-        raise AuthenticationError(error_msg)
+    if token:
+        # Use token-based authentication if provided
+        auth_header = f"Bearer {token}"
+    else:
+        # Fall back to API key authentication
+        api_key = USER_KEYS.get(username, API_KEY) if username else API_KEY
+        
+        if not api_key:
+            error_msg = f"No authentication available{'for user '+username if username else ''}"
+            logger.error(error_msg)
+            raise AuthenticationError(error_msg)
+            
+        auth_header = f"Bearer {api_key}"
     
     # Determine the cache expiry time based on the endpoint
     cache_expiry = DEFAULT_CACHE_EXPIRY
@@ -79,7 +98,7 @@ async def fetch_from_api(endpoint: str, params: dict = None, username: str = Non
             return cached_data
     
     # Not in cache or bypassing cache, make the API call
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": auth_header}
     url = f"{AUDIOBOOKSHELF_API}{endpoint}"
     logger.debug(f"📡 Fetching: {url}{' with params ' + str(params) if params else ''}")
 
@@ -106,12 +125,23 @@ async def fetch_from_api(endpoint: str, params: dict = None, username: str = Non
         except aiohttp.ClientError as client_error:
             context = f"API call to {url}"
             log_error(client_error, context=context)
+            
+            # Check if this might be an authentication error
+            if hasattr(client_error, "status") and client_error.status in (401, 403):
+                raise AuthenticationError(
+                    f"Authentication failed for Audiobookshelf API: {str(client_error)}"
+                ) from client_error
+            
             raise APIClientError(
                 f"Error communicating with Audiobookshelf API: {str(client_error)}"
             ) from client_error
 
 @cached(expiry=ITEM_CACHE_EXPIRY)
-async def get_download_urls_from_item(item_id: str, username: str = None):
+async def get_download_urls_from_item(
+    item_id: str, 
+    username: str = None,
+    token: str = None
+) -> list:
     """Retrieve download URLs for ebook files from an Audiobookshelf item.
     
     Makes an API call to fetch item details and extracts information about
@@ -120,7 +150,8 @@ async def get_download_urls_from_item(item_id: str, username: str = None):
     
     Args:
         item_id (str): The unique identifier of the item to retrieve.
-        username (str, optional): Username to use for authentication. Defaults to None.
+        username (str, optional): Username to use for authentication.
+        token (str, optional): User-specific auth token from Audiobookshelf login.
         
     Returns:
         list: A list of dictionaries containing ebook file information including:
@@ -129,7 +160,7 @@ async def get_download_urls_from_item(item_id: str, username: str = None):
             - download_url: An empty string (filled in later)
     """
     try:
-        item = await fetch_from_api(f"/items/{item_id}", username=username)
+        item = await fetch_from_api(f"/items/{item_id}", username=username, token=token)
         ebook_inos = []
         for file in item.get("libraryFiles", []):
             if "ebook" in file.get("fileType", ""):

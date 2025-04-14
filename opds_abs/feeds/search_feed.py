@@ -7,12 +7,13 @@ from lxml import etree
 from fastapi.responses import Response
 
 # Local application imports
-from opds_abs.core.feed_generator import BaseFeedGenerator
+from opds_abs.core.feed_generator import BaseFeedGenerator, AUTH_MATRIX
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
+from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ SEARCH_RESULTS_CACHE_EXPIRY = 600  # 10 minutes
 class SearchFeedGenerator(BaseFeedGenerator):
     """Generator for search feed"""
     
-    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused for filtering.
         
         This method fetches all library items and caches them so they can be 
@@ -33,6 +34,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to fetch items from.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
             
         Returns:
@@ -50,7 +52,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
         # Not in cache or bypassing cache, fetch the data
         logger.debug(f"Fetching all library items for library {library_id}")
         items_params = {"limit": 10000, "expand": "media"}
-        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
         library_items = self.filter_items(data)
         
         # Store in cache for future use
@@ -58,13 +60,14 @@ class SearchFeedGenerator(BaseFeedGenerator):
         
         return library_items
     
-    async def get_cached_search_results(self, username, library_id, query, bypass_cache=False):
+    async def get_cached_search_results(self, username, library_id, query, token=None, bypass_cache=False):
         """Fetch and cache search results to avoid repeated API calls for the same search query.
         
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to search in.
             query (str): The search query string.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh search.
             
         Returns:
@@ -82,19 +85,41 @@ class SearchFeedGenerator(BaseFeedGenerator):
         # Not in cache or bypassing cache, perform the search
         logger.debug(f"Performing search for query: {query}")
         search_params = {"limit": 2000, "q": query}
-        search_data = await fetch_from_api(f"/libraries/{library_id}/search", search_params, username)
+        search_data = await fetch_from_api(f"/libraries/{library_id}/search", search_params, username=username, token=token)
         
         # Store in cache for future use
         cache_set(cache_key, search_data)
         
         return search_data
     
-    async def generate_search_feed(self, username, library_id, params=None):
-        """Search for books, series, and authors in the library"""
-        self.verify_user(username)
-
+    async def generate_search_feed(self, username, library_id, params=None, token=None):
+        """Search for books, series, and authors in the library
+        
+        Args:
+            username (str): The username of the authenticated user.
+            library_id (str): ID of the library to search in.
+            params (dict, optional): Query parameters for filtering and search.
+            token (str, optional): Authentication token for Audiobookshelf.
+            
+        Returns:
+            Response: The search results feed.
+        """
         # Extract search query from parameters
+        params = params or {}
         query = params.get("q", "")
+        
+        # Check if token is in the query params (for OPDS clients that pass it that way)
+        if not token and params.get("token"):
+            token = params.get("token")
+        
+        # Get token from AUTH_MATRIX if it exists and wasn't provided in this request
+        if not token and username in AUTH_MATRIX:
+            token = AUTH_MATRIX.get(username)
+            logger.debug(f"Retrieved token from AUTH_MATRIX for user {username}")
+        
+        # Verify user after extracting all possible token sources
+        verify_user(username, token)
+
         if not query:
             # If no query provided, return empty search results
             feed = self.create_base_feed(username, library_id)
@@ -106,10 +131,10 @@ class SearchFeedGenerator(BaseFeedGenerator):
             return Response(content=feed_xml, media_type="application/atom+xml")
 
         # Call the search API endpoint with caching
-        search_data = await self.get_cached_search_results(username, library_id, query)
+        search_data = await self.get_cached_search_results(username, library_id, query, token=token)
         
         # Fetch cached library items once to be used for all operations
-        cached_library_items = await self.get_cached_library_items(username, library_id)
+        cached_library_items = await self.get_cached_library_items(username, library_id, token=token)
         
         # Create the base feed
         feed = self.create_base_feed()
@@ -133,8 +158,8 @@ class SearchFeedGenerator(BaseFeedGenerator):
             media = lib_item.get("media", {})
             if media.get("ebookFile", media.get("ebookFormat", None)):
                 # Get ebooks for the book
-                ebook_inos = await get_download_urls_from_item(lib_item.get("id"))
-                self.add_book_to_feed(feed, lib_item, ebook_inos, "")
+                ebook_inos = await get_download_urls_from_item(lib_item.get("id"), username=username, token=token)
+                self.add_book_to_feed(feed, lib_item, ebook_inos, "", token=token)
         
         # Initialize lists for series with ebooks
         series_with_ebooks = []
@@ -239,7 +264,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
                 
                 # Add the series to the feed - this will use our cache-aware URL format
                 series_generator = SeriesFeedGenerator()
-                series_generator.add_series_to_feed(username, library_id, feed, series)
+                series_generator.add_series_to_feed(username, library_id, feed, series, token=token)
         
         # Process authors - using cached items to count ebooks per author
         search_author_names = set()
@@ -275,6 +300,6 @@ class SearchFeedGenerator(BaseFeedGenerator):
                     author_data["id"] = author_data.get("id", "")
                     
                     author_generator = AuthorFeedGenerator()
-                    author_generator.add_author_to_feed(username, library_id, feed, author_data)
+                    author_generator.add_author_to_feed(username, library_id, feed, author_data, token=token)
         
         return self.create_response(feed)

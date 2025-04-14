@@ -1,6 +1,7 @@
 """Navigation feed generator"""
 # Standard library imports
-# None needed currently
+import logging
+from typing import Optional
 
 # Third-party imports
 from lxml import etree
@@ -9,6 +10,10 @@ from lxml import etree
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.core.navigation import navigation
 from opds_abs.utils import dict_to_xml
+from opds_abs.utils.auth_utils import verify_user
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class NavigationFeedGenerator(BaseFeedGenerator):
     """Generator for navigation feed.
@@ -20,7 +25,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         Inherits all attributes from BaseFeedGenerator.
     """
     
-    async def generate_nav_feed(self, username, library_id):
+    async def generate_nav_feed(self, username, library_id, token=None):
         """Generate the navigation buttons under a library.
         
         Creates an OPDS feed containing navigation entries for browsing content
@@ -29,6 +34,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate navigation for.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
@@ -36,7 +42,9 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         Raises:
             HTTPException: If the user is not authorized or another error occurs.
         """
-        self.verify_user(username)
+        logger.info(f"Generating navigation feed for user: {username}")
+        
+        verify_user(username, token)
 
         feed = self.create_base_feed(username, library_id)
         
@@ -49,8 +57,17 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         for nav in navigation:
             # Set up navigation item paths and URLs
             base_path = f"/opds/{username}/libraries/{library_id}/"
-            nav_params = f"{nav.get('params','')}"
-            nav_href = f"{base_path}{nav.get('path','')}?{nav_params}"
+            nav_params = nav.get('params','')
+            
+            # Add authentication token to nav_params if available
+            if token and nav_params:
+                nav_href = f"{base_path}{nav.get('path','')}?{nav_params}&token={token}"
+            elif token:
+                nav_href = f"{base_path}{nav.get('path','')}?token={token}"
+            elif nav_params:
+                nav_href = f"{base_path}{nav.get('path','')}?{nav_params}"
+            else:
+                nav_href = f"{base_path}{nav.get('path','')}"
             
             # Create entry data structure
             entry_data = {

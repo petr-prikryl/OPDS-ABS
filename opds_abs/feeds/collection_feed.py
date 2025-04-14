@@ -18,6 +18,7 @@ from opds_abs.utils.error_utils import (
     log_error,
     handle_exception
 )
+from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
 class CollectionFeedGenerator(BaseFeedGenerator):
     """Generator for collections feed"""
     
-    async def get_cached_library_items(self, username, library_id, bypass_cache=False):
+    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
         """Fetch and cache all library items that can be reused for filtering.
         
         This method fetches all library items and caches them so they can be 
@@ -37,6 +38,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to fetch items from.
+            token (str, optional): Authentication token for Audiobookshelf.
             bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
             
         Returns:
@@ -54,7 +56,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         # Not in cache or bypassing cache, fetch the data
         logger.debug(f"Fetching all library items for library {library_id}")
         items_params = {"limit": 10000, "expand": "media"}
-        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username)
+        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
         library_items = self.filter_items(data)
         
         # Store in cache for future use
@@ -62,44 +64,46 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         
         return library_items
     
-    async def get_collection_details(self, username, collection_id):
+    async def get_collection_details(self, username, collection_id, token=None):
         """Fetch detailed information about a specific collection.
         
         Args:
             username (str): The username of the authenticated user.
             collection_id (str): ID of the collection to get details for.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             dict: Collection details or None if not found.
         """
         try:
             # Get the collection data
-            collection_data = await fetch_from_api(f"/collections/{collection_id}", username=username)
+            collection_data = await fetch_from_api(f"/collections/{collection_id}", username=username, token=token)
             return collection_data
         except Exception as e:
             logger.error(f"Error fetching collection details: {e}")
             return None
     
-    async def filter_items_by_collection_id(self, username, library_id, collection_id):
+    async def filter_items_by_collection_id(self, username, library_id, collection_id, token=None):
         """Filter items by collection ID using cached items when possible.
         
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library containing the items.
             collection_id (str): ID of the collection to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             list: Library items filtered by the specified collection ID.
         """
         try:
             # Get collection details to get the books in this collection
-            collection_details = await self.get_collection_details(username, collection_id)
+            collection_details = await self.get_collection_details(username, collection_id, token=token)
             
             # If we can't get collection details, fall back to API call
             if not collection_details:
                 logger.warning(f"Could not find collection details for ID {collection_id}")
                 params = {"collection": collection_id}
-                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
                 return self.filter_items(data)
             
             collection_name = collection_details.get("name", "Unknown Collection")
@@ -113,7 +117,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 return []
             
             # Try to get all library items from cache
-            library_items = await self.get_cached_library_items(username, library_id)
+            library_items = await self.get_cached_library_items(username, library_id, token=token)
             
             # Filter the cached items by matching book IDs
             filtered_items = []
@@ -128,30 +132,30 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             logger.error(f"Error filtering items by collection: {e}")
             # Fall back to API call if there was an error
             params = {"collection": collection_id}
-            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username)
+            data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
             return self.filter_items(data)
     
-    async def generate_collection_items_feed(self, username, library_id, collection_id):
+    async def generate_collection_items_feed(self, username, library_id, collection_id, token=None):
         """Generate a feed of items in a specific collection.
         
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate the feed for.
             collection_id (str): The ID of the collection to filter by.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            # Verify the user exists
-            self.verify_user(username)
+            verify_user(username, token)
             
             # Get items filtered by collection (using cache when possible)
-            library_items = await self.filter_items_by_collection_id(username, library_id, collection_id)
+            library_items = await self.filter_items_by_collection_id(username, library_id, collection_id, token=token)
             
             # Get collection name
             collection_name = "Unknown Collection"
-            collection_details = await self.get_collection_details(username, collection_id)
+            collection_details = await self.get_collection_details(username, collection_id, token=token)
             if collection_details:
                 collection_name = collection_details.get("name", "Unknown Collection")
             
@@ -184,11 +188,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             tasks = []
             for book in library_items:
                 book_id = book.get("id", "")
-                tasks.append(get_download_urls_from_item(book_id))
+                tasks.append(get_download_urls_from_item(book_id, token=token))
             
             ebook_inos_list = await asyncio.gather(*tasks)
             for book, ebook_inos in zip(library_items, ebook_inos_list):
-                self.add_book_to_feed(feed, book, ebook_inos, "")
+                self.add_book_to_feed(feed, book, ebook_inos, "", token)
             
             return self.create_response(feed)
             
@@ -200,7 +204,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             # Use handle_exception to return a standardized error response
             return handle_exception(e, context=context)
     
-    def add_collection_to_feed(self, username, library_id, feed, collection):
+    def add_collection_to_feed(self, username, library_id, feed, collection, token=None):
         """Add a collection to the feed
         
         Args:
@@ -208,6 +212,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             library_id (str): The ID of the library.
             feed (Element): The XML feed element to add the collection to.
             collection (dict): The collection data.
+            token (str, optional): Authentication token to include in links.
             
         Raises:
             FeedGenerationError: If there's an error adding the collection to the feed.
@@ -232,6 +237,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             book_count = len(books_with_ebooks)
             collection_id = collection.get("id", "")
             
+            # Add token to the collection link if provided
+            collection_link = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
+            if token:
+                collection_link = f"{collection_link}?token={token}"
+            
             # Create entry data structure
             entry_data = {
                 "entry": {
@@ -241,7 +251,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                     "link": [
                         {
                             "_attrs": {
-                                "href": f"/opds/{username}/libraries/{library_id}/collections/{collection_id}",
+                                "href": collection_link,
                                 "rel": "subsection",
                                 "type": "application/atom+xml"
                             }
@@ -269,22 +279,23 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context)
             raise FeedGenerationError(f"Unexpected error adding collection to feed: {str(e)}") from e
     
-    async def generate_collections_feed(self, username, library_id):
+    async def generate_collections_feed(self, username, library_id, token=None):
         """Display all collections in the library that have books with ebook files
         
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library.
+            token (str, optional): Authentication token for Audiobookshelf.
             
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            self.verify_user(username)
+            verify_user(username, token)
             
             logger.info(f"Fetching collections feed for user {username}, library {library_id}")
             collections_params = {"limit": 1000}
-            data = await fetch_from_api(f"/libraries/{library_id}/collections", collections_params, username=username)
+            data = await fetch_from_api(f"/libraries/{library_id}/collections", collections_params, username=username, token=token)
 
             if not data or "results" not in data:
                 raise ResourceNotFoundError(f"No collections found for library {library_id}")
@@ -298,7 +309,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 collection_id = collection.get("id", "")
                 if collection_id:
                     try:
-                        collection_data = await fetch_from_api(f"/collections/{collection_id}", username=username)
+                        collection_data = await fetch_from_api(f"/collections/{collection_id}", username=username, token=token)
                         
                         # Check if there are ebooks in this collection and count them
                         ebook_count = 0
@@ -335,7 +346,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
 
             # Add each collection to the feed
             for collection in filtered_collections:
-                self.add_collection_to_feed(username, library_id, feed, collection)
+                self.add_collection_to_feed(username, library_id, feed, collection, token)
                 
             # If we have no collections but had errors, add an entry about the errors
             if not filtered_collections and collection_errors:
