@@ -11,6 +11,7 @@ import functools
 import hashlib
 import json
 from functools import wraps
+from opds_abs.config import SERIES_DETAILS_CACHE_EXPIRY
 
 logger = logging.getLogger(__name__)
 
@@ -193,3 +194,53 @@ async def get_cached_search_results(fetch_from_api_func, username, library_id, q
     cache_set(cache_key, search_data)
     
     return search_data
+
+
+async def get_cached_series_details(fetch_from_api_func, username, library_id, series_id, token=None):
+    """Fetch and cache detailed information about a specific series.
+    
+    This method caches series details to avoid redundant API calls when
+    the same series information is requested multiple times.
+    
+    Args:
+        fetch_from_api_func (callable): The function to fetch data from the API.
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library containing the series.
+        series_id (str): ID of the series to get details for.
+        token (str, optional): Authentication token for Audiobookshelf.
+        
+    Returns:
+        dict: Series details or None if not found.
+    """
+    # Create a cache key for this specific series
+    cache_key = _create_cache_key(f"/series-details/{library_id}/{series_id}", None, username)
+    
+    # Try to get from cache first
+    cached_data = cache_get(cache_key, SERIES_DETAILS_CACHE_EXPIRY)
+    if cached_data is not None:
+        logger.debug(f"✓ Cache hit for series details {series_id}")
+        return cached_data
+    
+    # Not in cache, fetch the series data
+    logger.debug(f"Fetching series details for series {series_id}")
+    
+    # Get all series to find the one with the matching ID
+    try:
+        series_params = {"limit": 2000, "sort": "name"}
+        data = await fetch_from_api_func(f"/libraries/{library_id}/series", series_params, username=username, token=token)
+        
+        # Find the series with the matching ID
+        series_details = None
+        for series in data.get("results", []):
+            if series.get("id") == series_id:
+                series_details = series
+                break
+        
+        # Store in cache for future use if we found details
+        if series_details:
+            cache_set(cache_key, series_details)
+        
+        return series_details
+    except Exception as e:
+        logger.error(f"Error fetching series details: {e}")
+        return None
