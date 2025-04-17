@@ -337,6 +337,15 @@ async def opds_search(
     try:
         auth_username, token, display_name = auth_info
         
+        # Check if token is in query params and use it if auth_info token is None
+        params = dict(request.query_params)
+        if token is None and "token" in params:
+            token = params["token"]
+            # Remove token from params to avoid duplication
+            params_copy = params.copy()
+            params_copy.pop("token", None)
+            params = params_copy
+        
         # Ensure this is the authenticated user's feed or authentication is disabled
         if AUTH_ENABLED and auth_username and username != display_name:
             # Preserve search parameters in the redirect
@@ -349,7 +358,6 @@ async def opds_search(
         # Use the display name from authentication if available
         effective_username = display_name if auth_username else username
         
-        params = dict(request.query_params)
         return await search_feed.generate_search_feed(
             effective_username, 
             library_id, 

@@ -11,7 +11,7 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
+from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, get_cached_library_items
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -68,41 +68,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         most_common_author = max(author_counts.items(), key=lambda x: x[1], default=("Unknown Author", 0))
         
         return most_common_author[0]
-    
-    async def get_cached_library_items(self, username, library_id, token=None, bypass_cache=False):
-        """Fetch and cache all library items that can be reused for filtering.
-        
-        This method fetches all library items and caches them so they can be 
-        reused when filtering by series instead of making additional API calls.
-        
-        Args:
-            username (str): The username of the authenticated user.
-            library_id (str): ID of the library to fetch items from.
-            token (str, optional): Authentication token for Audiobookshelf.
-            bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
-            
-        Returns:
-            list: All filtered library items containing ebooks.
-        """
-        cache_key = _create_cache_key(f"/library-items-all/{library_id}", None, username)
-        
-        # Try to get from cache if not bypassing
-        if not bypass_cache:
-            cached_data = cache_get(cache_key, LIBRARY_ITEMS_CACHE_EXPIRY)
-            if cached_data is not None:
-                logger.debug(f"✓ Cache hit for all library items {library_id}")
-                return cached_data  # Return cached data
-        
-        # Not in cache or bypassing cache, fetch the data
-        logger.debug(f"Fetching all library items for library {library_id}")
-        items_params = {"limit": 10000, "expand": "media"}
-        data = await fetch_from_api(f"/libraries/{library_id}/items", items_params, username=username, token=token)
-        library_items = self.filter_items(data)
-        
-        # Store in cache for future use
-        cache_set(cache_key, library_items)
-        
-        return library_items
     
     async def get_series_details(self, username, library_id, series_id, token=None):
         """Fetch detailed information about a specific series.
@@ -186,7 +151,13 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         """
         try:
             # Try to get all library items from cache first
-            library_items = await self.get_cached_library_items(username, library_id, token=token)
+            library_items = await get_cached_library_items(
+                fetch_from_api,
+                self.filter_items,
+                username,
+                library_id,
+                token=token
+            )
             
             # Get series details to find the name
             series_details = await self.get_series_details(username, library_id, series_id, token=token)
