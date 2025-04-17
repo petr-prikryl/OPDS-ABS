@@ -74,7 +74,7 @@ async def fetch_from_api(
         api_key = USER_KEYS.get(username, API_KEY) if username else API_KEY
         
         if not api_key:
-            error_msg = f"No authentication available{'for user '+username if username else ''}"
+            error_msg = f"No authentication available{' for user ' + username if username else ''}"
             logger.error(error_msg)
             raise AuthenticationError(error_msg)
             
