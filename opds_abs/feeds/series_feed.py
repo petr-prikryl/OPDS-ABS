@@ -11,7 +11,7 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, get_cached_library_items
+from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, get_cached_library_items, get_cached_series_details
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -96,46 +96,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             logger.error(f"Error fetching series details: {e}")
             return None
     
-    async def get_cached_series_details(self, username, library_id, series_id, token=None):
-        """Fetch and cache detailed information about a specific series.
-        
-        This method caches series details to avoid redundant API calls when
-        the same series information is requested multiple times.
-        
-        Args:
-            username (str): The username of the authenticated user.
-            library_id (str): ID of the library containing the series.
-            series_id (str): ID of the series to get details for.
-            token (str, optional): Authentication token for Audiobookshelf.
-            
-        Returns:
-            dict: Series details or None if not found.
-        """
-        from opds_abs.utils.cache_utils import cache_get, cache_set, _create_cache_key
-        from opds_abs.config import SERIES_DETAILS_CACHE_EXPIRY
-        import logging
-        
-        logger = logging.getLogger(__name__)
-        
-        # Create a cache key for this specific series
-        cache_key = _create_cache_key(f"/series-details/{library_id}/{series_id}", None, username)
-        
-        # Try to get from cache first
-        cached_data = cache_get(cache_key, SERIES_DETAILS_CACHE_EXPIRY)
-        if cached_data is not None:
-            logger.debug(f"✓ Cache hit for series details {series_id}")
-            return cached_data
-        
-        # Not in cache, fetch the data using the existing method
-        logger.debug(f"Fetching series details for series {series_id}")
-        series_details = await self.get_series_details(username, library_id, series_id, token=token)
-        
-        # Store in cache for future use if we found details
-        if series_details:
-            cache_set(cache_key, series_details)
-        
-        return series_details
-    
     async def filter_items_by_series_id(self, username, library_id, series_id, token=None):
         """Filter items by series ID using cached items when possible.
         
@@ -159,8 +119,14 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 token=token
             )
             
-            # Get series details to find the name
-            series_details = await self.get_series_details(username, library_id, series_id, token=token)
+            # Get series details to find the name using the shared utility function
+            series_details = await get_cached_series_details(
+                fetch_from_api, 
+                username, 
+                library_id, 
+                series_id, 
+                token=token
+            )
             series_name = series_details.get("name") if series_details else None
             
             if not series_name:
