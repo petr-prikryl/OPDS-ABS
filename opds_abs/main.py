@@ -6,6 +6,7 @@ and configures the logging for the application.
 # Standard library imports
 import logging
 import time
+import atexit
 
 # Third-party imports
 from fastapi import FastAPI, Request, HTTPException, Depends
@@ -15,14 +16,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
 
 # Local application imports
-from opds_abs.config import LOG_LEVEL, AUTH_ENABLED
+from opds_abs.config import LOG_LEVEL, AUTH_ENABLED, CACHE_PERSISTENCE_ENABLED
 from opds_abs.feeds.library_feed import LibraryFeedGenerator
 from opds_abs.feeds.navigation_feed import NavigationFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.feeds.collection_feed import CollectionFeedGenerator
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.search_feed import SearchFeedGenerator
-from opds_abs.utils.cache_utils import _cache, clear_cache
+from opds_abs.utils.cache_utils import _cache, clear_cache, load_cache_from_disk, save_cache_to_disk
 from opds_abs.api.client import invalidate_cache
 from opds_abs.utils.auth_utils import get_authenticated_user, require_auth
 from opds_abs.utils.error_utils import (
@@ -117,6 +118,26 @@ app.mount("/static", StaticFiles(directory="opds_abs/static"), name="static")
 
 # Setup templates
 templates = Jinja2Templates(directory="opds_abs/templates")
+
+# Startup event to load cache from disk
+@app.on_event("startup")
+async def startup_event():
+    """Load the cache from disk on application startup."""
+    if CACHE_PERSISTENCE_ENABLED:
+        logger.info("Loading cache from disk...")
+        load_cache_from_disk()
+
+# Shutdown event to save cache to disk
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Save the cache to disk on application shutdown."""
+    if CACHE_PERSISTENCE_ENABLED:
+        logger.info("Saving cache to disk...")
+        save_cache_to_disk()
+
+# Register atexit handler as a backup for when the shutdown event doesn't fire
+if CACHE_PERSISTENCE_ENABLED:
+    atexit.register(save_cache_to_disk)
 
 # Custom exception handler for OPDS exceptions
 @app.exception_handler(OPDSBaseException)
