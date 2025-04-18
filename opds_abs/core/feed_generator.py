@@ -6,7 +6,6 @@ from datetime import datetime
 
 # Third-party imports
 from lxml import etree
-from fastapi import HTTPException
 from fastapi.responses import Response
 
 # Local application imports
@@ -16,12 +15,12 @@ from opds_abs.utils.error_utils import FeedGenerationError, log_error
 
 class BaseFeedGenerator:
     """Base class for creating OPDS feed components.
-    
+
     This class provides the foundation for generating OPDS (Open Publication Distribution System)
     feeds for Audiobookshelf content. It includes methods for creating feed structures, 
     adding book entries, filtering content, and generating responses.
     """
-    
+
     def __init__(self):
         self.base_feed = etree.Element(
             "feed",
@@ -31,11 +30,11 @@ class BaseFeedGenerator:
 
     def create_base_feed(self, username=None, library_id=None):
         """Create a copy of the base feed with optional search link.
-        
+
         Args:
             username (str, optional): Username for personalized feed. Defaults to None.
             library_id (str, optional): Library ID to associate with the feed. Defaults to None.
-            
+
         Returns:
             Element: An lxml Element object representing the base feed structure.
         """
@@ -52,33 +51,38 @@ class BaseFeedGenerator:
             }
             dict_to_xml(base_feed, search_link)
         return base_feed
-        
+
     def create_response(self, feed):
         """Convert feed to XML and create a response.
-        
+
         Args:
             feed (Element): The lxml Element containing the complete feed.
-            
+
         Returns:
             Response: A FastAPI Response object with the XML content.
         """
         try:
-            feed_xml = etree.tostring(feed, pretty_print=True, xml_declaration=False, encoding="UTF-8")
+            feed_xml = etree.tostring(
+                    feed,
+                    pretty_print=True,
+                    xml_declaration=False,
+                    encoding="UTF-8"
+            )
             return Response(content=feed_xml, media_type="application/atom+xml")
         except Exception as e:
             log_error(e, context="Creating XML response")
             raise FeedGenerationError("Failed to generate XML response") from e
-        
+
     def add_book_to_feed(self, feed, book, ebook_inos, query_filter="", token=None):
         """Add a book to the feed with all its metadata.
-        
+
         Args:
             feed (Element): The lxml Element to add the book entry to.
             book (dict): Dictionary containing book data.
             ebook_inos (list): List of ebook identifier objects.
             query_filter (str, optional): Filter string to customize the entry. Defaults to "".
             token (str, optional): Authentication token to use for download links.
-            
+
         Raises:
             FeedGenerationError: If there's an error adding the book to the feed.
         """
@@ -86,16 +90,16 @@ class BaseFeedGenerator:
             media = book.get("media", {})
             # Extract ebook format - check both direct and nested paths (for search results)
             ebook_format = media.get("ebookFormat", media.get("ebookFile", {}).get("ebookFormat"))
-            
+
             for ebook in ebook_inos:
                 book_metadata = media.get("metadata", {})
                 book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
-                
+
                 # Use the token for authentication if available
                 auth_param = ""
                 if token:
                     auth_param = f"?token={token}"
-                    
+
                 download_path = f"{book_path}/file/{ebook.get('ino')}/download{auth_param}"
                 # Cover URL doesn't need authentication
                 cover_url = f"{book_path}/cover?format=jpeg"
@@ -110,7 +114,7 @@ class BaseFeedGenerator:
                     f"Genres: {', '.join(book_metadata.get('genres', []))}<br/>"
                     f"Added at: {added_at}<br/>"
                 )
-                
+
                 # Build the entry data structure
                 entry_data = {
                     "entry": {
@@ -141,7 +145,7 @@ class BaseFeedGenerator:
                         ]
                     }
                 }
-                
+
                 # Add series info if filtering by series
                 if query_filter.startswith("series"):
                     series_number = book_metadata.get('series', {}).get("sequence", "")
@@ -149,10 +153,10 @@ class BaseFeedGenerator:
                     entry_data["entry"]["series"] = {
                         "name": {"_text": f" - {series_name} #{series_number}"}
                     }
-                
+
                 # Convert the dictionary to XML elements
                 dict_to_xml(feed, entry_data)
-                
+
         except (ValueError, KeyError) as e:
             book_title = book.get("media", {}).get("metadata", {}).get("title", "Unknown")
             context = f"Adding book '{book_title}' to feed"
@@ -163,13 +167,13 @@ class BaseFeedGenerator:
             context = f"Adding book '{book_title}' to feed"
             log_error(e, context=context)
             raise FeedGenerationError(f"Unexpected error adding book to feed: {str(e)}") from e
-        
+
     def create_filter(self, abs_filter=None):
         """Create a base64-encoded filter to be used by Audiobookshelf.
-        
+
         Args:
             abs_filter (str, optional): Filter string to encode. Defaults to None.
-            
+
         Returns:
             str: Base64-encoded filter string.
         """
@@ -182,16 +186,16 @@ class BaseFeedGenerator:
             # Return empty string on error rather than raising exception
             # since this is a utility function
             return ""
-        
+
     def filter_items(self, data):
         """Find items in a library that have an ebook file, sorted by a field in a specific order.
-        
+
         Args:
             data (dict): The data containing items to filter.
-            
+
         Returns:
             list: Filtered list of items that have ebook files.
-            
+
         Raises:
             FeedGenerationError: If there's an error filtering the items.
         """
@@ -212,13 +216,13 @@ class BaseFeedGenerator:
 
     def sort_results(self, data):
         """Sort results based on the opds_seq field.
-        
+
         Args:
             data (list): List of items to sort.
-            
+
         Returns:
             list: Sorted list of items.
-            
+
         Raises:
             FeedGenerationError: If there's an error sorting the results.
         """
@@ -235,11 +239,11 @@ class BaseFeedGenerator:
 
     def extract_value(self, item, path):
         """Extract value from a nested dictionary using a dot-separated path.
-        
+
         Args:
             item (dict): The dictionary to extract values from.
             path (str): Dot-separated path indicating where to find the value.
-            
+
         Returns:
             any: The extracted value, or None if the path doesn't exist.
         """
