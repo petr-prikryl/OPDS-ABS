@@ -8,12 +8,12 @@ import logging
 from typing import Optional, Tuple, Dict
 import aiohttp
 
-from fastapi import Request, HTTPException, Depends
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi import Request, HTTPException
+from fastapi.security import HTTPBasic
 
 from opds_abs.config import AUDIOBOOKSHELF_URL, AUTH_ENABLED, AUTH_CACHE_EXPIRY
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
-from opds_abs.utils.error_utils import AuthenticationError, ResourceNotFoundError, log_error
+from opds_abs.utils.error_utils import AuthenticationError, log_error
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)

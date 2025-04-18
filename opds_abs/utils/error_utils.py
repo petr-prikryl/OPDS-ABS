@@ -4,7 +4,7 @@ This module provides standardized error handling functionality including
 custom exceptions, error formatting, and logging helpers.
 """
 import logging
-from typing import Any, Optional
+from typing import Optional
 from fastapi import HTTPException
 from fastapi.responses import Response, JSONResponse
 

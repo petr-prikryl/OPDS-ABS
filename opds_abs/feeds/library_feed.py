@@ -16,9 +16,6 @@ from opds_abs.utils.cache_utils import get_cached_library_items
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Cache expiry for library items (in seconds)
-LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
-
 class LibraryFeedGenerator(BaseFeedGenerator):
     """Generator for library items feed"""
     

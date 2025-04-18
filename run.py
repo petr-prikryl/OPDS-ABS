@@ -1,8 +1,6 @@
 """
 OPDS Feed for Audiobookshelf - Entry Point
 """
-import os
-import logging
 import uvicorn
 from opds_abs.main import app
 from opds_abs.config import LOG_LEVEL

@@ -4,18 +4,15 @@ This module contains all the FastAPI route definitions for the OPDS-ABS applicat
 and configures the logging for the application.
 """
 # Standard library imports
-import os
 import logging
 import time
-from urllib.parse import unquote
 
 # Third-party imports
-from fastapi import FastAPI, Request, HTTPException, Response, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 # Local application imports
 from opds_abs.config import LOG_LEVEL, AUTH_ENABLED
@@ -31,9 +28,7 @@ from opds_abs.utils.auth_utils import get_authenticated_user, require_auth
 from opds_abs.utils.error_utils import (
     OPDSBaseException,
     ResourceNotFoundError,
-    FeedGenerationError,
     CacheError,
-    AuthenticationError,
     handle_exception,
     convert_to_http_exception,
     log_error
