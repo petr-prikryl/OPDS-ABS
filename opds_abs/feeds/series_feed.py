@@ -11,13 +11,8 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, get_cached_library_items, get_cached_series_details
-from opds_abs.utils.error_utils import (
-    FeedGenerationError,
-    ResourceNotFoundError,
-    log_error,
-    handle_exception
-)
+from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_series_details
+from opds_abs.utils.error_utils import log_error, handle_exception
 from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
@@ -110,7 +105,52 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             dict: Series details including name and most common author.
         """
         try:
-            # Try to get all library items from cache first
+            # Get series details to find the name and book IDs using the shared utility function
+            series_details = await get_cached_series_details(
+                fetch_from_api, 
+                username, 
+                library_id, 
+                series_id, 
+                token=token
+            )
+            
+            if not series_details:
+                logger.warning(f"Could not find series details for ID {series_id}")
+                # Fall back to API call if we couldn't find the series details
+                params = {"filter": f"series.{self.create_filter(series_id)}"}
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
+                filtered_items = self.filter_items(data)
+                # Get the most common author from the filtered items
+                most_common_author = self.get_most_common_author(filtered_items)
+                # Create minimal series details with author information
+                series_details = {"id": series_id, "name": "Unknown Series", "authorName": most_common_author}
+                return filtered_items, series_details
+            
+            series_name = series_details.get("name", "Unknown Series")
+            logger.info(f"Found series details for: {series_name}")
+            
+            # Extract book IDs from the series details
+            series_book_ids = []
+            for book in series_details.get("books", []):
+                book_id = book.get("id")
+                if book_id:
+                    series_book_ids.append(book_id)
+            
+            if not series_book_ids:
+                logger.warning(f"No book IDs found in series {series_name}")
+                # Fall back to API call if we couldn't find any book IDs
+                params = {"filter": f"series.{self.create_filter(series_id)}"}
+                data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
+                filtered_items = self.filter_items(data)
+                # Get the most common author from the filtered items
+                most_common_author = self.get_most_common_author(filtered_items)
+                # Update series details with author information
+                series_details["authorName"] = most_common_author
+                return filtered_items, series_details
+            
+            logger.info(f"Found {len(series_book_ids)} book IDs in series {series_name}")
+            
+            # Try to get all library items from cache
             library_items = await get_cached_library_items(
                 fetch_from_api,
                 self.filter_items,
@@ -119,43 +159,20 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 token=token
             )
             
-            # Get series details to find the name using the shared utility function
-            series_details = await get_cached_series_details(
-                fetch_from_api, 
-                username, 
-                library_id, 
-                series_id, 
-                token=token
-            )
-            series_name = series_details.get("name") if series_details else None
+            # Filter the cached items by exact book ID match
+            filtered_items = []
+            for item in library_items:
+                if item.get("id") in series_book_ids:
+                    filtered_items.append(item)
             
-            if not series_name:
-                logger.warning(f"Could not find series name for ID {series_id}")
-                # Fall back to API call if we couldn't find the series name
+            logger.info(f"Found {len(filtered_items)} matching items in cache for series {series_name}")
+            
+            # If no matching items were found in the cache, try the fallback method
+            if not filtered_items:
+                logger.warning(f"No matching items found in cache for series {series_name}. Trying API fallback.")
                 params = {"filter": f"series.{self.create_filter(series_id)}"}
                 data = await fetch_from_api(f"/libraries/{library_id}/items", params, username=username, token=token)
                 filtered_items = self.filter_items(data)
-                # Get the most common author from the filtered items
-                most_common_author = self.get_most_common_author(filtered_items)
-                # Update series details with author information
-                if series_details:
-                    series_details["authorName"] = most_common_author
-                return filtered_items, series_details
-            
-            logger.info(f"Filtering cached items by series: {series_name}")
-            
-            # Filter the cached items by series name in-memory
-            filtered_items = []
-            for item in library_items:
-                media = item.get("media", {})
-                metadata = media.get("metadata", {})
-                
-                # Extract series information from metadata
-                series_info = metadata.get("seriesName", "")
-                
-                # If series name is part of the series info (will be in format "Series Name #X")
-                if series_name in series_info:
-                    filtered_items.append(item)
             
             # Sort by series sequence number if available
             sorted_items = sorted(
@@ -167,10 +184,9 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             most_common_author = self.get_most_common_author(sorted_items)
             
             # Update series details with author information
-            if series_details:
-                series_details["authorName"] = most_common_author
+            series_details["authorName"] = most_common_author
             
-            logger.info(f"Found {len(sorted_items)} items in series {series_name} by {most_common_author}")
+            logger.info(f"Final result: {len(sorted_items)} items in series {series_name} by {most_common_author}")
             return sorted_items, series_details
             
         except Exception as e:
