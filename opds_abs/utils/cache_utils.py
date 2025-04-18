@@ -6,24 +6,21 @@ a simple in-memory cache with time-based expiration.
 """
 import time
 import logging
-from typing import Dict, Any, Optional, Tuple, Callable, List
+from typing import Dict, Any, Optional, Tuple, Callable
 import functools
 import hashlib
 import json
-from functools import wraps
-from opds_abs.config import SERIES_DETAILS_CACHE_EXPIRY
+from opds_abs.config import (
+    DEFAULT_CACHE_EXPIRY,
+    LIBRARY_ITEMS_CACHE_EXPIRY,
+    SEARCH_RESULTS_CACHE_EXPIRY,
+    SERIES_DETAILS_CACHE_EXPIRY
+)
 
 logger = logging.getLogger(__name__)
 
 # Cache dictionary: key -> (timestamp, data)
 _cache: Dict[str, Tuple[float, Any]] = {}
-
-# Default cache expiry time (in seconds)
-DEFAULT_CACHE_EXPIRY = 3600  # 1 hour
-# Cache expiry for library items (in seconds)
-LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
-# Cache expiry for search results (in seconds)
-SEARCH_RESULTS_CACHE_EXPIRY = 600  # 10 minutes
 
 
 def _create_cache_key(endpoint: str, params: Optional[Dict] = None, username: Optional[str] = None) -> str:

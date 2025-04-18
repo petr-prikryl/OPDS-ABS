@@ -2,34 +2,37 @@
 # Standard library imports
 import asyncio
 import logging
-from typing import Optional, Dict, Any, Tuple
+from typing import Dict, Any
 
 # Third-party imports
 import aiohttp
-from fastapi import HTTPException
 
 # Local application imports
-from opds_abs.config import AUDIOBOOKSHELF_API, AUTH_ENABLED
+from opds_abs.config import (
+    AUDIOBOOKSHELF_API,
+    AUTH_ENABLED,
+    AUTHORS_CACHE_EXPIRY,
+    COLLECTIONS_CACHE_EXPIRY,
+    DEFAULT_CACHE_EXPIRY,
+    LIBRARIES_CACHE_EXPIRY,
+    LIBRARY_ITEMS_CACHE_EXPIRY,
+    SEARCH_RESULTS_CACHE_EXPIRY,
+    SERIES_DETAILS_CACHE_EXPIRY
+)
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, cached, _cache
 from opds_abs.utils.error_utils import AuthenticationError, APIClientError, log_error
 from opds_abs.utils.auth_utils import get_token_for_username, TOKEN_CACHE
 
 logger = logging.getLogger(__name__)
 
-# Cache expiry times (in seconds)
-ITEM_CACHE_EXPIRY = 3600  # 1 hour for items
-COLLECTION_CACHE_EXPIRY = 1800  # 30 minutes for collections
-SEARCH_CACHE_EXPIRY = 600  # 10 minutes for search results
-DEFAULT_CACHE_EXPIRY = 1800  # 30 minutes default
-
 # Define cache expiry for different endpoint types
 CACHE_EXPIRY_MAPPING = {
-    "/items/": ITEM_CACHE_EXPIRY,
-    "/libraries/": COLLECTION_CACHE_EXPIRY,
-    "/search": SEARCH_CACHE_EXPIRY,
-    "/series": COLLECTION_CACHE_EXPIRY,
-    "/authors": COLLECTION_CACHE_EXPIRY,
-    "/collections": COLLECTION_CACHE_EXPIRY,
+    "/items/": LIBRARY_ITEMS_CACHE_EXPIRY,
+    "/libraries/": LIBRARIES_CACHE_EXPIRY,
+    "/search": SEARCH_RESULTS_CACHE_EXPIRY,
+    "/series": SERIES_DETAILS_CACHE_EXPIRY,
+    "/authors": AUTHORS_CACHE_EXPIRY,
+    "/collections": COLLECTIONS_CACHE_EXPIRY,
 }
 
 async def fetch_from_api(
@@ -152,7 +155,7 @@ async def fetch_from_api(
                 f"Error communicating with Audiobookshelf API: {str(client_error)}"
             ) from client_error
 
-@cached(expiry=ITEM_CACHE_EXPIRY)
+@cached(expiry=LIBRARY_ITEMS_CACHE_EXPIRY)
 async def get_download_urls_from_item(
     item_id: str, 
     username: str = None,
