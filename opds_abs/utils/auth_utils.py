@@ -198,7 +198,7 @@ async def get_authenticated_user(request: Request) -> Tuple[Optional[str], Optio
             headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
         )
 
-def require_auth(request: Request) -> Tuple[str, str, str]:
+async def require_auth(request: Request) -> Tuple[str, str, str]:
     """FastAPI dependency to require authentication.
     
     Args:
@@ -210,7 +210,7 @@ def require_auth(request: Request) -> Tuple[str, str, str]:
     Raises:
         HTTPException: If authentication fails or no credentials provided
     """
-    username, token, display_name = get_authenticated_user(request)
+    username, token, display_name = await get_authenticated_user(request)
     
     if not username or not token:
         raise HTTPException(
