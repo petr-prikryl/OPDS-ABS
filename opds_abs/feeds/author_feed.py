@@ -3,16 +3,12 @@
 import logging
 import asyncio
 
-# Third-party imports
-from lxml import etree
-
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
-from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS
+from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, get_cached_library_items
-from opds_abs.utils.auth_utils import verify_user
+from opds_abs.utils.cache_utils import get_cached_library_items
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -110,9 +106,6 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            # Verify the user exists
-            verify_user(username, token)
-            
             # Get items filtered by author (using cache when possible)
             library_items = await self.filter_items_by_author_id(username, library_id, author_id, token=token)
             
@@ -149,11 +142,11 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 dict_to_xml(feed, error_data)
                 return self.create_response(feed)
             
-            # Get ebook files for each book
+            # Get ebook files for each book - pass both username and token
             tasks = []
             for book in library_items:
                 book_id = book.get("id", "")
-                tasks.append(get_download_urls_from_item(book_id, token=token))
+                tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
             
             ebook_inos_list = await asyncio.gather(*tasks)
             for book, ebook_inos in zip(library_items, ebook_inos_list):
@@ -358,9 +351,6 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            # Verify the user exists
-            verify_user(username, token)
-            
             # Log the request
             logger.info(f"Fetching authors feed for user {username}, library {library_id}")
             

@@ -1,10 +1,9 @@
 """Authentication utilities for the OPDS-ABS application.
 
 This module provides authentication functionality for the application, including
-basic auth validation against the Audiobookshelf login endpoint and token management.
+basic auth validation against the Audiobookshelf login endpoint.
 """
 import base64
-import json
 import logging
 from typing import Optional, Tuple, Dict
 import aiohttp
@@ -12,7 +11,7 @@ import aiohttp
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
-from opds_abs.config import AUDIOBOOKSHELF_URL, AUTH_ENABLED, AUTH_CACHE_EXPIRY, USER_KEYS
+from opds_abs.config import AUDIOBOOKSHELF_URL, AUTH_ENABLED, AUTH_CACHE_EXPIRY
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
 from opds_abs.utils.error_utils import AuthenticationError, ResourceNotFoundError, log_error
 
@@ -22,12 +21,9 @@ logger = logging.getLogger(__name__)
 # Set up HTTPBasic for FastAPI
 security = HTTPBasic(auto_error=False)
 
-# Cache for user tokens: username -> (token, display_name)
-_token_cache: Dict[str, Tuple[str, str]] = {}
-
-# In-memory cache to store username-to-token mappings for the current process
-# This helps maintain authentication across requests when tokens aren't passed explicitly
-AUTH_MATRIX = {}
+# In-memory token cache: username -> (token, display_name)
+# This helps maintain authentication across requests by caching tokens
+TOKEN_CACHE: Dict[str, Tuple[str, str]] = {}
 
 async def authenticate_with_audiobookshelf(username: str, password: str) -> Tuple[str, str]:
     """Authenticate with Audiobookshelf and get a token.
@@ -68,6 +64,9 @@ async def authenticate_with_audiobookshelf(username: str, password: str) -> Tupl
                 
                 if not token:
                     raise AuthenticationError("No token returned from Audiobookshelf")
+                
+                # Cache the token with the username
+                TOKEN_CACHE[username] = (token, display_name)
                 
                 return token, display_name
                 
@@ -120,18 +119,26 @@ async def get_user_token(username: str, password: str) -> Tuple[str, str]:
     Raises:
         AuthenticationError: If authentication fails
     """
-    cache_key = _create_cache_key("auth_token", None, username)
+    # First check in-memory cache
+    if username in TOKEN_CACHE:
+        logger.debug(f"Using cached token for user {username}")
+        return TOKEN_CACHE[username]
     
-    # Check cache first
+    # Not in memory cache, check persistent cache
+    cache_key = _create_cache_key("auth_token", None, username)
     cached_data = cache_get(cache_key, AUTH_CACHE_EXPIRY)
+    
     if cached_data is not None:
         logger.debug(f"✓ Cache hit for auth token: {username}")
+        # Update the in-memory cache too
+        TOKEN_CACHE[username] = cached_data
         return cached_data
     
-    # Not in cache, authenticate with Audiobookshelf
+    # Not in any cache, authenticate with Audiobookshelf
+    logger.debug(f"Not in cache, authenticating user {username}")
     token, display_name = await authenticate_with_audiobookshelf(username, password)
     
-    # Store in cache
+    # Store in persistent cache
     cache_set(cache_key, (token, display_name))
     
     return token, display_name
@@ -157,7 +164,7 @@ async def verify_credentials(request: Request) -> Tuple[Optional[str], Optional[
     if not username or not password:
         return None, None, None
     
-    # Check if we need to authenticate with Audiobookshelf
+    # Get the token using the username and password (cached if possible)
     token, display_name = await get_user_token(username, password)
     
     return username, token, display_name
@@ -175,20 +182,8 @@ async def get_authenticated_user(request: Request) -> Tuple[Optional[str], Optio
         HTTPException: If authentication fails
     """
     try:
-        # First try to get credentials from the Authorization header
+        # Get credentials and token using Basic Auth
         username, token, display_name = await verify_credentials(request)
-        
-        # If no token from header but AUTH_ENABLED is True, check query params for token
-        if AUTH_ENABLED and not token:
-            query_token = request.query_params.get("token")
-            if query_token:
-                # Extract username from path parameters
-                path_username = request.path_params.get("username")
-                if path_username:
-                    logger.debug(f"Found token in query parameters for user: {path_username}")
-                    # Use the username from the path and the token from query params
-                    return path_username, query_token, path_username
-        
         return username, token, display_name
     except AuthenticationError as e:
         # Convert to HTTPException with WWW-Authenticate header
@@ -221,43 +216,15 @@ async def require_auth(request: Request) -> Tuple[str, str, str]:
         
     return username, token, display_name
 
-def verify_user(username, token=None):
-    """Verify that the username exists in the system.
-    
-    When authentication is enabled (AUTH_ENABLED=true), this will require a valid token.
-    When authentication is disabled, it will skip verification.
+def get_token_for_username(username: str) -> Optional[str]:
+    """Get a cached token for a username if available.
     
     Args:
-        username (str): The username to verify.
-        token (str, optional): The authentication token from Audiobookshelf.
+        username: The username to get a token for
         
-    Raises:
-        ResourceNotFoundError: If authentication is enabled but no valid auth method is found.
+    Returns:
+        str: The token if available, None otherwise
     """
-    logger.debug(f"Verifying user: {username}, AUTH_ENABLED={AUTH_ENABLED}, token_provided={token is not None}")
-    
-    # If authentication is disabled, don't verify
-    if not AUTH_ENABLED:
-        logger.debug("Authentication disabled, skipping verification")
-        return
-        
-    # If a token is provided, store it in our AUTH_MATRIX for this username
-    # This helps maintain authentication across requests
-    if token:
-        logger.debug(f"User {username} authenticated via token")
-        AUTH_MATRIX[username] = token
-        return
-    
-    # If no token provided but we have one stored for this user, use that
-    if username in AUTH_MATRIX:
-        logger.debug(f"User {username} authenticated via stored token in AUTH_MATRIX")
-        return
-        
-    # If no token but username is in USER_KEYS, consider the user authenticated with API key
-    if username in USER_KEYS:
-        logger.debug(f"User {username} authenticated via API key in USER_KEYS")
-        return
-        
-    # If we get here, authentication is enabled but no valid auth method was found
-    logger.warning(f"Authentication failed for user {username}: No valid token or API key found")
-    raise ResourceNotFoundError(f"User '{username}' not found or not authenticated")
+    if username in TOKEN_CACHE:
+        return TOKEN_CACHE[username][0]
+    return None

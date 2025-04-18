@@ -1,6 +1,6 @@
 """XML utility functions for working with OPDS feeds"""
 from lxml import etree
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any
 
 
 def dict_to_xml(parent_element, data: Dict[str, Any]) -> None:

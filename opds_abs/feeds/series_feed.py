@@ -3,9 +3,6 @@
 import logging
 import asyncio
 
-# Third-party imports
-from lxml import etree
-
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
@@ -13,7 +10,6 @@ from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_series_details
 from opds_abs.utils.error_utils import log_error, handle_exception
-from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -215,9 +211,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            # Verify the user exists
-            verify_user(username, token)
-            
             # Get items filtered by series (using cache when possible)
             library_items, series_details = await self.filter_items_by_series_id(username, library_id, series_id, token=token)
 
@@ -274,7 +267,14 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             return handle_exception(e, context=context)
     
     def filter_series(self, data):
-        """Find items in a library series that have an ebook file, sorted by a field"""
+        """Find items in a library series that have an ebook file, sorted by a field.
+        
+        Args:
+            data (dict): Series data from the Audiobookshelf API containing results list.
+            
+        Returns:
+            list: Filtered series results that contain at least one book with an ebook file.
+        """
         n = 1
         filtered_results = []
 
@@ -398,8 +398,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
-        verify_user(username, token)
-
         series_params = {"limit": 2000, "sort": "name"}
         data = await fetch_from_api(f"/libraries/{library_id}/series", series_params, username=username, token=token)
 
