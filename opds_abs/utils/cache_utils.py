@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, Tuple, Callable
 import functools
 import hashlib
 import json
+import asyncio
 
 # Local application imports
 from opds_abs.config import (
@@ -348,45 +349,94 @@ async def get_cached_series_details(fetch_from_api_func, username, library_id, s
         return None
 
 
-async def get_cached_author_details(fetch_from_api_func, username, library_id, token=None, bypass_cache=False):
-    """Fetch and cache detailed author information from the authors endpoint.
+async def get_cached_author_details(fetch_func, filter_func, username, library_id, token=None, bypass_cache=False):
+    """Fetch and cache author information, focusing on authors who have books with ebook files.
     
     Args:
-        fetch_from_api_func (callable): The function to fetch data from the API.
+        fetch_func (callable): The function to fetch data from the API.
+        filter_func (callable): Function to filter items.
         username (str): The username of the authenticated user.
-        library_id (str): ID of the library to get authors from.
+        library_id (str): ID of the library to search in.
         token (str, optional): Authentication token for Audiobookshelf.
-        bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
+        bypass_cache (bool): Whether to bypass cache and force fresh data lookup.
         
     Returns:
-        dict: A dictionary mapping author names to their detailed information.
+        list: A list of dictionaries containing author information with ebook counts.
     """
-    cache_key = _create_cache_key(f"/libraries/{library_id}/authors", None, username)
+    # Create a cache key specifically for authors with ebooks
+    cache_key = _create_cache_key(f"/authors-with-ebooks/{library_id}", None, username)
     
-    # Try to get from cache if not bypassing
+    # Try to get from cache first if not bypassing
     if not bypass_cache:
         cached_data = cache_get(cache_key, AUTHORS_CACHE_EXPIRY)
         if cached_data is not None:
-            logger.debug(f"✓ Cache hit for authors in library {library_id}")
+            logger.debug(f"✓ Cache hit for authors with ebooks in library {library_id}")
             return cached_data
-    
-    # Not in cache or bypassing cache, fetch the data
-    logger.debug(f"Fetching author details for library {library_id}")
+
+    # Use cached library items instead of fetching directly
+    library_items = await get_cached_library_items(
+        fetch_func,
+        filter_func,
+        username,
+        library_id,
+        token=token
+    )
+
+    if not library_items:
+        logger.debug(f"No library items found for library {library_id}")
+        return []
+
+    # First collect basic author info from items
+    authors_with_ebooks = {}
+
+    # Optimize ebook detection with a single pass through the items
+    for item in library_items:
+        media = item.get("media", {})
+        metadata = media.get("metadata", {})
+        
+        # Efficient ebook detection
+        has_ebook = (
+            media.get("ebookFile") is not None or 
+            (media.get("ebookFormat") is not None and media.get("ebookFormat"))
+        )
+
+        if has_ebook:
+            # Get author name from metadata
+            author_name = metadata.get("authorName")
+            if author_name:
+                # Add or update author in our tracking dictionary
+                if author_name in authors_with_ebooks:
+                    authors_with_ebooks[author_name]["ebook_count"] += 1
+                else:
+                    authors_with_ebooks[author_name] = {
+                        "name": author_name,
+                        "ebook_count": 1,
+                        "id": None,  # Will be populated from author details
+                        "imagePath": None  # Will be populated from author details
+                    }
+
+    # Now get full author details from the API
     authors_params = {"limit": 2000, "sort": "name"}
-    author_data = await fetch_from_api_func(f"/libraries/{library_id}/authors", authors_params, username=username, token=token)
+    author_data = await fetch_func(f"/libraries/{library_id}/authors", authors_params, username=username, token=token)
     
     if not author_data or "authors" not in author_data:
-        logger.error("Failed to retrieve authors data")
-        return {}
+        logger.warning("Failed to retrieve full author details")
+        # Just return what we have so far
+        return list(authors_with_ebooks.values())
     
-    # Create a dictionary of authors by name for quick lookup
-    authors_dict = {}
+    # Enhance author information with details from the author endpoint
     for author in author_data.get("authors", []):
         author_name = author.get("name")
-        if author_name:
-            authors_dict[author_name] = author
+        if author_name and author_name in authors_with_ebooks:
+            # Add ID and image path from author details
+            authors_with_ebooks[author_name]["id"] = author.get("id")
+            authors_with_ebooks[author_name]["imagePath"] = author.get("imagePath")
+
+    # Convert to list for the caller
+    authors_list = list(authors_with_ebooks.values())
     
-    # Store in cache for future use
-    cache_set(cache_key, authors_dict)
+    # Cache the result for future use
+    cache_set(cache_key, authors_list)
     
-    return authors_dict
+    logger.debug(f"Found {len(authors_list)} authors with ebooks in library {library_id}")
+    return authors_list
