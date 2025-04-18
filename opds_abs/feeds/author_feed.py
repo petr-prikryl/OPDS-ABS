@@ -6,9 +6,9 @@ import asyncio
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
-from opds_abs.config import AUDIOBOOKSHELF_API
+from opds_abs.config import AUDIOBOOKSHELF_API, AUTHORS_CACHE_EXPIRY
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.cache_utils import get_cached_library_items
+from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_author_details
 from opds_abs.utils.error_utils import (
     FeedGenerationError,
     ResourceNotFoundError,
@@ -330,28 +330,20 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             FeedGenerationError: If there's an error processing the author data.
         """
         try:
-            # Get all authors in the library
-            authors_params = {"limit": 2000, "sort": "name"}
-            author_data = await fetch_from_api(
-                    f"/libraries/{library_id}/authors",
-                    authors_params,
-                    username=username,
-                    token=token
+            # Use the cached author details function
+            authors_dict = await get_cached_author_details(
+                fetch_from_api,
+                username,
+                library_id,
+                token=token
             )
-
-            if not author_data or "authors" not in author_data:
+            
+            if not authors_dict:
                 logger.error("Failed to retrieve authors data")
                 raise ResourceNotFoundError("Authors data not found")
-
-            # Create a dictionary of authors by name for quick lookup
-            authors_dict = {}
-            for author in author_data.get("authors", []):
-                author_name = author.get("name")
-                if author_name:
-                    authors_dict[author_name] = author
-
+                
             return authors_dict
-
+            
         except ResourceNotFoundError:
             # Re-raise ResourceNotFoundError
             raise

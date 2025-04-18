@@ -25,7 +25,8 @@ from opds_abs.config import (
     SERIES_DETAILS_CACHE_EXPIRY,
     CACHE_PERSISTENCE_ENABLED,
     CACHE_FILE_PATH,
-    CACHE_SAVE_INTERVAL
+    CACHE_SAVE_INTERVAL,
+    AUTHORS_CACHE_EXPIRY
 )
 
 logger = logging.getLogger(__name__)
@@ -345,3 +346,47 @@ async def get_cached_series_details(fetch_from_api_func, username, library_id, s
     except Exception as e:
         logger.error(f"Error fetching series details: {e}")
         return None
+
+
+async def get_cached_author_details(fetch_from_api_func, username, library_id, token=None, bypass_cache=False):
+    """Fetch and cache detailed author information from the authors endpoint.
+    
+    Args:
+        fetch_from_api_func (callable): The function to fetch data from the API.
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library to get authors from.
+        token (str, optional): Authentication token for Audiobookshelf.
+        bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
+        
+    Returns:
+        dict: A dictionary mapping author names to their detailed information.
+    """
+    cache_key = _create_cache_key(f"/libraries/{library_id}/authors", None, username)
+    
+    # Try to get from cache if not bypassing
+    if not bypass_cache:
+        cached_data = cache_get(cache_key, AUTHORS_CACHE_EXPIRY)
+        if cached_data is not None:
+            logger.debug(f"✓ Cache hit for authors in library {library_id}")
+            return cached_data
+    
+    # Not in cache or bypassing cache, fetch the data
+    logger.debug(f"Fetching author details for library {library_id}")
+    authors_params = {"limit": 2000, "sort": "name"}
+    author_data = await fetch_from_api_func(f"/libraries/{library_id}/authors", authors_params, username=username, token=token)
+    
+    if not author_data or "authors" not in author_data:
+        logger.error("Failed to retrieve authors data")
+        return {}
+    
+    # Create a dictionary of authors by name for quick lookup
+    authors_dict = {}
+    for author in author_data.get("authors", []):
+        author_name = author.get("name")
+        if author_name:
+            authors_dict[author_name] = author
+    
+    # Store in cache for future use
+    cache_set(cache_key, authors_dict)
+    
+    return authors_dict
