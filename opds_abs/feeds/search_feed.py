@@ -16,10 +16,6 @@ from opds_abs.utils.auth_utils import get_token_for_username
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Cache expiry for library items (in seconds)
-LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
-SEARCH_RESULTS_CACHE_EXPIRY = 600  # 10 minutes
-
 class SearchFeedGenerator(BaseFeedGenerator):
     """Generator for search feed.
     

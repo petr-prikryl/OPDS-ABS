@@ -14,9 +14,6 @@ from opds_abs.utils.error_utils import log_error, handle_exception
 # Set up logging
 logger = logging.getLogger(__name__)
 
-# Cache expiry for library items (in seconds)
-LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
-
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed"""
     

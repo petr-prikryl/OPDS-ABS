@@ -14,7 +14,13 @@ AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_URL + "/api"
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
 AUTH_CACHE_EXPIRY = int(os.getenv("AUTH_CACHE_EXPIRY", "86400"))  # Default: 24 hours
 
-# Cache expiry times (in seconds)
+# Cache configuration (in seconds)
+AUTHORS_CACHE_EXPIRY = int(os.getenv("AUTHORS_CACHE_EXPIRY", "1800"))  # 30 minutes for collections
+COLLECTIONS_CACHE_EXPIRY = int(os.getenv("COLLECTION_CACHE_EXPIRY", "1800"))  # 30 minutes for collections
+DEFAULT_CACHE_EXPIRY = int(os.getenv("DEFAULT_CACHE_EXPIRY", "3600"))  # Default: 1 hour
+LIBRARIES_CACHE_EXPIRY = int(os.getenv("LIBRARIES_CACHE_EXPIRY", "3600")) # Default: 1 hour
+LIBRARY_ITEMS_CACHE_EXPIRY = int(os.getenv("LIBRARY_ITEMS_CACHE_EXPIRY", "1800"))  # Default: 30 minutes
+SEARCH_RESULTS_CACHE_EXPIRY = int(os.getenv("SEARCH_RESULTS_CACHE_EXPIRY", "600"))  # Default: 10 minutes
 SERIES_DETAILS_CACHE_EXPIRY = int(os.getenv("SERIES_DETAILS_CACHE_EXPIRY", "3600"))  # Default: 1 hour
 
 # Logging configuration
