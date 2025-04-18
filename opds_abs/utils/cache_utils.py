@@ -2,10 +2,15 @@
 
 This module provides functions for caching API responses and other data
 to reduce API calls and improve application performance. It implements
-a simple in-memory cache with time-based expiration.
+a simple in-memory cache with time-based expiration and optional
+persistence using pickle.
 """
 import time
 import logging
+import os
+import pickle
+import threading
+from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Callable
 import functools
 import hashlib
@@ -14,13 +19,18 @@ from opds_abs.config import (
     DEFAULT_CACHE_EXPIRY,
     LIBRARY_ITEMS_CACHE_EXPIRY,
     SEARCH_RESULTS_CACHE_EXPIRY,
-    SERIES_DETAILS_CACHE_EXPIRY
+    SERIES_DETAILS_CACHE_EXPIRY,
+    CACHE_PERSISTENCE_ENABLED,
+    CACHE_FILE_PATH,
+    CACHE_SAVE_INTERVAL
 )
 
 logger = logging.getLogger(__name__)
 
 # Cache dictionary: key -> (timestamp, data)
 _cache: Dict[str, Tuple[float, Any]] = {}
+_last_save_time = 0
+_cache_lock = threading.RLock()
 
 
 def _create_cache_key(endpoint: str, params: Optional[Dict] = None, username: Optional[str] = None) -> str:
@@ -47,6 +57,86 @@ def _create_cache_key(endpoint: str, params: Optional[Dict] = None, username: Op
     return hashlib.md5(key_str.encode()).hexdigest()
 
 
+def load_cache_from_disk() -> None:
+    """Load the cache from disk if available."""
+    global _cache
+    
+    if not CACHE_PERSISTENCE_ENABLED:
+        logger.debug("Cache persistence is disabled, skipping load from disk")
+        return
+    
+    try:
+        cache_path = Path(CACHE_FILE_PATH)
+        
+        # Create the directory if it doesn't exist
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        if not cache_path.exists():
+            logger.info(f"Cache file does not exist at {CACHE_FILE_PATH}, starting with empty cache")
+            return
+        
+        with cache_path.open("rb") as f:
+            with _cache_lock:
+                loaded_cache = pickle.load(f)
+                _cache = loaded_cache
+                
+        # Count non-expired items
+        current_time = time.time()
+        valid_items = sum(1 for _, (timestamp, _) in _cache.items() 
+                          if current_time - timestamp <= DEFAULT_CACHE_EXPIRY)
+                
+        logger.info(f"Loaded {len(_cache)} cached items from disk ({valid_items} non-expired)")
+        
+    except (pickle.PickleError, IOError, EOFError) as e:
+        logger.warning(f"Failed to load cache from disk: {str(e)}")
+        # Start with an empty cache if loading fails
+        _cache = {}
+
+
+def save_cache_to_disk() -> None:
+    """Save the current cache to disk for persistence."""
+    global _last_save_time
+    
+    if not CACHE_PERSISTENCE_ENABLED:
+        return
+    
+    current_time = time.time()
+    
+    # Use a lock to prevent concurrent access during save
+    with _cache_lock:
+        # Only save if enough time has passed since last save
+        if current_time - _last_save_time < CACHE_SAVE_INTERVAL:
+            return
+            
+        # Clean expired items before saving
+        expired_keys = []
+        for key, (timestamp, _) in _cache.items():
+            if current_time - timestamp > DEFAULT_CACHE_EXPIRY:
+                expired_keys.append(key)
+                
+        for key in expired_keys:
+            del _cache[key]
+            
+        # Update last save time
+        _last_save_time = current_time
+    
+    try:
+        cache_path = Path(CACHE_FILE_PATH)
+        
+        # Create the directory if it doesn't exist
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Save cache to file
+        with cache_path.open("wb") as f:
+            with _cache_lock:
+                pickle.dump(_cache, f, protocol=pickle.HIGHEST_PROTOCOL)
+                
+        logger.debug(f"Saved {len(_cache)} cache items to {CACHE_FILE_PATH}")
+        
+    except (pickle.PickleError, IOError) as e:
+        logger.error(f"Failed to save cache to disk: {str(e)}")
+
+
 def cache_get(key: str, max_age: int = DEFAULT_CACHE_EXPIRY) -> Optional[Any]:
     """Get an item from the cache if it exists and isn't expired.
     
@@ -57,16 +147,17 @@ def cache_get(key: str, max_age: int = DEFAULT_CACHE_EXPIRY) -> Optional[Any]:
     Returns:
         The cached data or None if not found or expired
     """
-    if key not in _cache:
-        return None
-    
-    timestamp, data = _cache[key]
-    if time.time() - timestamp > max_age:
-        # Cache expired, remove it
-        del _cache[key]
-        return None
-    
-    return data
+    with _cache_lock:
+        if key not in _cache:
+            return None
+        
+        timestamp, data = _cache[key]
+        if time.time() - timestamp > max_age:
+            # Cache expired, remove it
+            del _cache[key]
+            return None
+        
+        return data
 
 
 def cache_set(key: str, data: Any) -> None:
@@ -76,12 +167,22 @@ def cache_set(key: str, data: Any) -> None:
         key: Cache key
         data: Data to cache
     """
-    _cache[key] = (time.time(), data)
+    with _cache_lock:
+        _cache[key] = (time.time(), data)
+    
+    # Schedule background save if enough time has passed
+    if CACHE_PERSISTENCE_ENABLED and time.time() - _last_save_time >= CACHE_SAVE_INTERVAL:
+        # Use a thread to save the cache without blocking
+        threading.Thread(target=save_cache_to_disk, daemon=True).start()
 
 
 def clear_cache() -> None:
     """Clear all cached items."""
-    _cache.clear()
+    with _cache_lock:
+        _cache.clear()
+    
+    if CACHE_PERSISTENCE_ENABLED:
+        save_cache_to_disk()
 
 
 def cached(expiry: int = DEFAULT_CACHE_EXPIRY) -> Callable:
