@@ -12,32 +12,32 @@ logger = logging.getLogger(__name__)
 
 class NavigationFeedGenerator(BaseFeedGenerator):
     """Generator for navigation feed.
-    
+
     This class creates OPDS feeds that provide navigation options for an Audiobookshelf
     library, such as links to browse by series, authors, and collections.
-    
+
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
     """
-    
+
     async def generate_navigation_feed(self, username, library_id, token=None):
         """Generate the navigation feed with links to various sections.
-        
+
         Args:
             username (str): The username requesting the feed.
             library_id (str): The ID of the library to generate the feed for.
             token (str, optional): Authentication token for Audiobookshelf.
-            
+
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
             # Log the request
-            logger.info(f"Generating navigation feed for user {username}, library {library_id}")
-            
+            logger.info("Generating navigation feed for user %s, library %s", username, library_id)
+
             # Create the feed
             feed = self.create_base_feed(username, library_id)
-            
+
             # Build the feed metadata
             feed_data = {
                 "id": {"_text": f"{library_id}/navigation"},
@@ -63,16 +63,16 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                     }
                 ]
             }
-            
+
             # Add feed title using dictionary approach
             feed_data["title"] = {"_text": "Navigation"}
             dict_to_xml(feed, feed_data)
-            
+
             for nav in navigation:
                 # Set up navigation item paths and URLs
                 base_path = f"/opds/{username}/libraries/{library_id}/"
                 nav_params = nav.get('params','')
-                
+
                 # Add authentication token to nav_params if available
                 if token and nav_params:
                     nav_href = f"{base_path}{nav.get('path','')}?{nav_params}&token={token}"
@@ -82,7 +82,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                     nav_href = f"{base_path}{nav.get('path','')}?{nav_params}"
                 else:
                     nav_href = f"{base_path}{nav.get('path','')}"
-                
+
                 # Create entry data structure
                 entry_data = {
                     "entry": {
@@ -109,11 +109,11 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                         ]
                     }
                 }
-                
+
                 # Convert dictionary to XML elements
                 dict_to_xml(feed, entry_data)
 
             return self.create_response(feed)
         except Exception as e:
-            logger.error(f"Error generating navigation feed: {e}")
+            logger.error("Error generating navigation feed: %s", e)
             raise
