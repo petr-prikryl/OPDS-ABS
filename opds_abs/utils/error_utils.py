@@ -29,9 +29,9 @@ class AuthenticationError(OPDSBaseException):
     default_message = "Authentication failed"
 
 class APIClientError(OPDSBaseException):
-    """Raised when there's an error communicating with an external API."""
+    """Raised when there's an error communicating with Audiobookshelf."""
     status_code = 502
-    default_message = "Error communicating with external service"
+    default_message = "Error communicating with Audiobookshelf"
 
 class FeedGenerationError(OPDSBaseException):
     """Raised when there's an error generating a feed."""
