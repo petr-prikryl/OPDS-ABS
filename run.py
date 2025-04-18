@@ -2,7 +2,6 @@
 OPDS Feed for Audiobookshelf - Entry Point
 """
 import uvicorn
-from opds_abs.main import app
 from opds_abs.config import LOG_LEVEL
 
 if __name__ == "__main__":
