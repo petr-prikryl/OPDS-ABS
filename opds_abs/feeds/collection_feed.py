@@ -88,13 +88,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collection_name = collection_details.get("name", "Unknown Collection")
             logger.info("Filtering items by collection: %s", collection_name)
 
-            # Get the book IDs in this collection
-            collection_book_ids = []
-
-            for book in collection_details.get("books", []):
-                book_id = book.get("id")
-                if book_id:
-                    collection_book_ids.append(book_id)
+            # Get the book IDs in this collection - use a set for O(1) lookup
+            collection_book_ids = {
+                book.get("id") for book in collection_details.get("books", []) 
+                if book.get("id")
+            }
 
             if not collection_book_ids:
                 logger.warning("No book IDs found in collection %s", collection_id)
@@ -109,11 +107,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 token=token
             )
 
-            # Filter the cached items by matching book IDs
-            filtered_items = []
-            for item in library_items:
-                if item.get("id") in collection_book_ids:
-                    filtered_items.append(item)
+            # Filter the cached items by matching book IDs - using list comprehension for efficiency
+            filtered_items = [
+                item for item in library_items 
+                if item.get("id") in collection_book_ids
+            ]
 
             logger.info("Found %d items in collection %s from cache",
                         len(filtered_items),
@@ -133,7 +131,8 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             )
             return self.filter_items(data)
 
-    async def generate_collection_items_feed(self, username, library_id, collection_id, token=None):
+    async def generate_collection_items_feed(self, username, library_id, collection_id, token=None, 
+                                             page=1, per_page=20):
         """Generate a feed of items in a specific collection.
 
         Args:
@@ -141,12 +140,15 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             library_id (str): The ID of the library to generate the feed for.
             collection_id (str): The ID of the collection to filter by.
             token (str, optional): Authentication token for Audiobookshelf.
+            page (int): The page number to display (1-indexed).
+            per_page (int): Number of books per page.
 
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            logger.info("Generating collection items feed for collection %s", collection_id)
+            logger.info("Generating collection items feed for collection %s (page %d)", 
+                        collection_id, page)
 
             # Get collection details first to get the name
             collection_info = await self.get_collection_details(
@@ -185,16 +187,46 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 }
                 dict_to_xml(feed, error_data)
                 return self.create_response(feed)
+                
+            # Apply pagination
+            total_books = len(collection_items)
+            total_pages = (total_books + per_page - 1) // per_page  # Ceiling division
+            
+            # Adjust page number if out of bounds
+            if page < 1:
+                page = 1
+            elif page > total_pages and total_pages > 0:
+                page = total_pages
+                
+            # Calculate start and end indices
+            start_idx = (page - 1) * per_page
+            end_idx = min(start_idx + per_page, total_books)
+            
+            # Get the subset of books for this page
+            paged_items = collection_items[start_idx:end_idx]
+            
+            # Add pagination links
+            self._add_pagination_links(feed, username, library_id, collection_id, page, total_pages, token)
 
-            # Get ebook files for each book - pass both username and token
+            # Get ebook files in optimal batch sizes to avoid overwhelming the server
+            BATCH_SIZE = 5  # Adjust based on server capacity
             tasks = []
-            for book in collection_items:
+            
+            for book in paged_items:
                 book_id = book.get("id", "")
-                tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
+                if book_id:
+                    tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
 
-            ebook_inos_list = await asyncio.gather(*tasks)
-            for book, ebook_inos in zip(collection_items, ebook_inos_list):
-                self.add_book_to_feed(feed, book, ebook_inos, "", token)
+            # Process in batches if we have a lot of books
+            for i in range(0, len(tasks), BATCH_SIZE):
+                batch_tasks = tasks[i:i+BATCH_SIZE]
+                batch_results = await asyncio.gather(*batch_tasks)
+                
+                # Add each book from this batch to the feed
+                for j, ebook_info in enumerate(batch_results):
+                    book_index = i + j
+                    if book_index < len(paged_items):
+                        self.add_book_to_feed(feed, paged_items[book_index], ebook_info, "", token)
 
             return self.create_response(feed)
 
@@ -205,6 +237,70 @@ class CollectionFeedGenerator(BaseFeedGenerator):
 
             # Use handle_exception to return a standardized error response
             return handle_exception(e, context=context)
+            
+    def _add_pagination_links(self, feed, username, library_id, collection_id, 
+                              current_page, total_pages, token=None):
+        """Add pagination links to the feed.
+        
+        Args:
+            feed: The XML feed object to add links to
+            username: The username for URLs
+            library_id: The library ID for URLs
+            collection_id: The collection ID for URLs
+            current_page: Current page number
+            total_pages: Total number of pages
+            token: Optional token to include in URLs
+        """
+        # Base URL for pagination
+        base_url = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
+        token_param = f"&token={token}" if token else ""
+        
+        # Add pagination links
+        links = []
+        
+        # First page link
+        if current_page > 1:
+            links.append({
+                "_attrs": {
+                    "rel": "first",
+                    "href": f"{base_url}?page=1{token_param}",
+                    "type": "application/atom+xml;profile=opds-catalog"
+                }
+            })
+        
+        # Previous page link
+        if current_page > 1:
+            links.append({
+                "_attrs": {
+                    "rel": "previous",
+                    "href": f"{base_url}?page={current_page-1}{token_param}",
+                    "type": "application/atom+xml;profile=opds-catalog"
+                }
+            })
+        
+        # Next page link
+        if current_page < total_pages:
+            links.append({
+                "_attrs": {
+                    "rel": "next",
+                    "href": f"{base_url}?page={current_page+1}{token_param}",
+                    "type": "application/atom+xml;profile=opds-catalog"
+                }
+            })
+        
+        # Last page link
+        if current_page < total_pages:
+            links.append({
+                "_attrs": {
+                    "rel": "last",
+                    "href": f"{base_url}?page={total_pages}{token_param}",
+                    "type": "application/atom+xml;profile=opds-catalog"
+                }
+            })
+        
+        # Add links to feed
+        for link in links:
+            dict_to_xml(feed, {"link": link})
 
     def add_collection_to_feed(self, username, library_id, feed, collection, token=None):
         """Add a collection to the feed
@@ -220,24 +316,29 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             FeedGenerationError: If there's an error adding the collection to the feed.
         """
         try:
-            # Get the first book with an ebook to use for the cover
+            # Default cover and collection details
             cover_url = "/static/images/collections.png"
+            collection_id = collection.get("id", "")
+            collection_name = collection.get("name", "Unknown collection name")
 
-            # Count books with ebooks and find a cover image
-            books_with_ebooks = []
-            for book in collection.get("books", []):
-                media = book.get("media", {})
-                if (media.get("ebookFile") is not None or
-                    (media.get("ebookFormat") is not None and media.get("ebookFormat"))):
-                    books_with_ebooks.append(book)
-                    # Use the first book with an ebook for the cover if we haven't found one yet
-                    if cover_url == "/static/images/collections.png" and book.get("id"):
-                        book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
-                        cover_url = f"{book_path}/cover?format=jpeg"
-
+            # Use list comprehension for more efficient filtering of books with ebooks
+            books_with_ebooks = [
+                book for book in collection.get("books", [])
+                if (book.get("media", {}).get("ebookFile") is not None or
+                   (book.get("media", {}).get("ebookFormat") is not None and book.get("media", {}).get("ebookFormat")))
+            ]
+            
             # Get the book count for the entry content
             book_count = len(books_with_ebooks)
-            collection_id = collection.get("id", "")
+
+            # Find a cover image from the first book with an ID
+            if books_with_ebooks:
+                for book in books_with_ebooks:
+                    book_id = book.get("id")
+                    if book_id:
+                        book_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}"
+                        cover_url = f"{book_path}/cover?format=jpeg"
+                        break
 
             # Add token to the collection link if provided
             collection_link = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
@@ -247,7 +348,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             # Create entry data structure
             entry_data = {
                 "entry": {
-                    "title": {"_text": collection.get("name", "Unknown collection name")},
+                    "title": {"_text": collection_name},
                     "id": {"_text": collection_id},
                     "content": {"_text": f"Collection with {book_count} ebook{'s' if book_count != 1 else ''}"},
                     "link": [
