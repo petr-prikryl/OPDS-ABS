@@ -9,14 +9,10 @@ import aiohttp
 from fastapi import HTTPException
 
 # Local application imports
-from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS, API_KEY
-from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, cached, _cache, clear_cache
-from opds_abs.utils.error_utils import (
-    AuthenticationError, 
-    APIClientError, 
-    convert_to_http_exception, 
-    log_error
-)
+from opds_abs.config import AUDIOBOOKSHELF_API, AUTH_ENABLED
+from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set, cached, _cache
+from opds_abs.utils.error_utils import AuthenticationError, APIClientError, log_error
+from opds_abs.utils.auth_utils import get_token_for_username, TOKEN_CACHE
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +41,8 @@ async def fetch_from_api(
 ) -> Dict[str, Any]:
     """Fetch data from Audiobookshelf API with caching support.
     
-    Makes an authenticated request to the Audiobookshelf API using the appropriate 
-    authentication method (user token or API key). Results are cached based on 
-    endpoint type to improve performance on subsequent calls.
+    Makes an authenticated request to the Audiobookshelf API using the user token. 
+    Results are cached based on endpoint type to improve performance on subsequent calls.
     
     Args:
         endpoint (str): The API endpoint to call (e.g., "/items/123").
@@ -62,23 +57,37 @@ async def fetch_from_api(
     Raises:
         HTTPException: If the API request fails or times out.
     """
-    # Determine which authentication to use
-    # Priority: 1) Provided token, 2) User's API key from USER_KEYS, 3) Default API key
-    auth_header = ""
+    params = params.copy() if params else {}
     
-    if token:
-        # Use token-based authentication if provided
-        auth_header = f"Bearer {token}"
-    else:
-        # Fall back to API key authentication
-        api_key = USER_KEYS.get(username, API_KEY) if username else API_KEY
+    # Try to get a token if one wasn't provided
+    if token is None and username is not None:
+        # Check if token is in the params
+        if 'token' in params:
+            token = params.pop('token')  # Extract and remove from params
+            logger.debug(f"Using token from params for user {username}")
+        else:
+            # Try to get from the TOKEN_CACHE 
+            token = get_token_for_username(username)
+            logger.debug(f"Token from cache for {username}: {'Found' if token else 'Not found'}")
         
-        if not api_key:
-            error_msg = f"No authentication available{' for user ' + username if username else ''}"
-            logger.error(error_msg)
-            raise AuthenticationError(error_msg)
-            
-        auth_header = f"Bearer {api_key}"
+        # If no token from cache and authentication is enabled, we have a problem
+        if token is None and AUTH_ENABLED:
+            logger.error(f"No cached token available for user {username}")
+            raise AuthenticationError(f"No authentication token available for user {username}")
+    
+    # If authentication is disabled, proceed without a token
+    if not AUTH_ENABLED:
+        logger.debug(f"Authentication disabled, proceeding without token")
+        token = None
+    
+    # Set up auth header if we have a token
+    headers = {}
+    if token:
+        auth_header = f"Bearer {token}"
+        headers["Authorization"] = auth_header
+        logger.debug(f"Using Bearer token authentication for API call to {endpoint}")
+    else:
+        logger.warning(f"No token for API call to {endpoint}")
     
     # Determine the cache expiry time based on the endpoint
     cache_expiry = DEFAULT_CACHE_EXPIRY
@@ -98,7 +107,6 @@ async def fetch_from_api(
             return cached_data
     
     # Not in cache or bypassing cache, make the API call
-    headers = {"Authorization": auth_header}
     url = f"{AUDIOBOOKSHELF_API}{endpoint}"
     logger.debug(f"📡 Fetching: {url}{' with params ' + str(params) if params else ''}")
 
@@ -106,7 +114,7 @@ async def fetch_from_api(
         try:
             async with session.get(
                     url,
-                    params=params if params else {},
+                    params=params,
                     headers=headers,
                     timeout=10
                 ) as response:
@@ -128,6 +136,14 @@ async def fetch_from_api(
             
             # Check if this might be an authentication error
             if hasattr(client_error, "status") and client_error.status in (401, 403):
+                token_info = "Token present" if token else "No token"
+                logger.error(f"Authentication error ({token_info}) for {url}: {str(client_error)}")
+                
+                # Invalidate token cache on auth errors to force re-authentication
+                if username and username in TOKEN_CACHE:
+                    del TOKEN_CACHE[username]
+                    logger.info(f"Invalidated token cache for {username} due to auth error")
+                
                 raise AuthenticationError(
                     f"Authentication failed for Audiobookshelf API: {str(client_error)}"
                 ) from client_error

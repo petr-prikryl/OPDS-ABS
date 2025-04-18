@@ -10,14 +10,9 @@ from fastapi import HTTPException
 from fastapi.responses import Response
 
 # Local application imports
-from opds_abs.config import AUDIOBOOKSHELF_API, USER_KEYS, AUTH_ENABLED
+from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
-from opds_abs.utils.error_utils import (
-    ResourceNotFoundError, 
-    FeedGenerationError,
-    log_error
-)
-from opds_abs.utils.auth_utils import AUTH_MATRIX, verify_user
+from opds_abs.utils.error_utils import FeedGenerationError, log_error
 
 class BaseFeedGenerator:
     """Base class for creating OPDS feed components.
@@ -96,12 +91,10 @@ class BaseFeedGenerator:
                 book_metadata = media.get("metadata", {})
                 book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
                 
-                # Use the token for authentication if available, otherwise use API key
+                # Use the token for authentication if available
                 auth_param = ""
                 if token:
                     auth_param = f"?token={token}"
-                elif book.get('username') in USER_KEYS:
-                    auth_param = f"?token={USER_KEYS.get(book.get('username'))}"
                     
                 download_path = f"{book_path}/file/{ebook.get('ino')}/download{auth_param}"
                 # Cover URL doesn't need authentication

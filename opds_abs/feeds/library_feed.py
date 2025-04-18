@@ -5,7 +5,6 @@ import logging
 import copy
 
 # Third-party imports
-from lxml import etree
 from fastapi.responses import RedirectResponse
 
 # Local application imports
@@ -13,7 +12,6 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items
-from opds_abs.utils.auth_utils import verify_user
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -36,8 +34,6 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         """
         # Test log message
         logger.info(f"Generating root feed for user: {username}")
-        
-        verify_user(username, token)
 
         data = await fetch_from_api("/libraries", token=token, username=username)
         feed = self.create_base_feed()
@@ -96,8 +92,6 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         Returns:
             Response: The items feed for the specified library.
         """
-        verify_user(username, token)
-
         params = params if params else {}
         
         # Check if we're filtering by collection using direct collection parameter

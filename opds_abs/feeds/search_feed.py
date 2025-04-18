@@ -3,18 +3,15 @@
 import logging
 from collections import defaultdict
 
-# Third-party imports
-from lxml import etree
-from fastapi.responses import Response
 
 # Local application imports
-from opds_abs.core.feed_generator import BaseFeedGenerator, AUTH_MATRIX
+from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_search_results
-from opds_abs.utils.auth_utils import verify_user
+from opds_abs.utils.auth_utils import get_token_for_username
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -24,10 +21,17 @@ LIBRARY_ITEMS_CACHE_EXPIRY = 1800  # 30 minutes
 SEARCH_RESULTS_CACHE_EXPIRY = 600  # 10 minutes
 
 class SearchFeedGenerator(BaseFeedGenerator):
-    """Generator for search feed"""
+    """Generator for search feed.
+    
+    This class creates OPDS feeds for search results from an Audiobookshelf library,
+    including books, series, and authors that match a search query.
+    
+    Attributes:
+        Inherits all attributes from BaseFeedGenerator.
+    """
     
     async def generate_search_feed(self, username, library_id, params=None, token=None):
-        """Search for books, series, and authors in the library
+        """Search for books, series, and authors in the library.
         
         Args:
             username (str): The username of the authenticated user.
@@ -45,14 +49,13 @@ class SearchFeedGenerator(BaseFeedGenerator):
         if not token and params.get("token"):
             token = params.get("token")
         
-        # Get token from AUTH_MATRIX if it exists and wasn't provided in this request
-        if not token and username in AUTH_MATRIX:
-            token = AUTH_MATRIX.get(username)
-            logger.debug(f"Retrieved token from AUTH_MATRIX for user {username}")
+        # Try to get cached token if none was provided
+        if not token and username:
+            cached_token = get_token_for_username(username)
+            if cached_token:
+                token = cached_token
+                logger.debug(f"Retrieved cached token for user {username}")
         
-        # Verify user after extracting all possible token sources
-        verify_user(username, token)
-
         # Return empty search results if no query provided
         if not query:
             return self._create_empty_search_feed(username, library_id, query)

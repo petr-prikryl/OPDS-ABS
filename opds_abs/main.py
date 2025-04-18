@@ -302,7 +302,7 @@ async def opds_nav(
         # Use the display name from authentication if available
         effective_username = display_name if auth_username else username
         
-        return await navigation_feed.generate_nav_feed(
+        return await navigation_feed.generate_navigation_feed(
             effective_username, 
             library_id,
             token=token
