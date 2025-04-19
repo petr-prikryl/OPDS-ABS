@@ -15,7 +15,19 @@ from opds_abs.utils.error_utils import log_error, handle_exception
 logger = logging.getLogger(__name__)
 
 class SeriesFeedGenerator(BaseFeedGenerator):
-    """Generator for series feed"""
+    """Generator for series feed.
+    
+    This class creates OPDS feeds that list series from an Audiobookshelf library and
+    the books contained within specific series. It includes methods for fetching
+    series details, filtering items by series, and generating series-based feeds.
+    
+    The class handles both listing all series in a library and displaying the books
+    within a specific series, with proper sorting by sequence number when applicable.
+    It also includes helper methods to determine the most common author for a series.
+    
+    Attributes:
+        Inherits all attributes from BaseFeedGenerator.
+    """
 
     def get_most_common_author(self, items):
         """Get the most common author from a list of items.
