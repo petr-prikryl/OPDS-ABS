@@ -337,7 +337,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
 
         return filtered_results
 
-    def add_series_to_feed(self, username, library_id, feed, series, token=None):
+    async def add_series_to_feed(self, username, library_id, feed, series, token=None):
         """Add a series to the feed
 
         Args:
@@ -348,52 +348,53 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             token (str, optional): Authentication token to include in links.
         """
         first_book = series.get('books', [])[0] if series.get('books') else {}
+        first_book_id = first_book.get("id", None)
         first_book_metadata = first_book.get('media', {}).get('metadata', {})
-        book_path = f"{AUDIOBOOKSHELF_API}/items/{first_book.get('id','')}"
-        cover_url = f"{book_path}/cover?format=jpeg"
+        book_path = f"{AUDIOBOOKSHELF_API}/items/{first_book_id}" if first_book_id else ""
+        cover_url = f"{book_path}/cover?format=jpeg" if book_path else ""
 
         # Determine if this was called from search feed by checking if authorName is already set
         # The search feed will directly set authorName, while series feed won't have this property
-        from_search_feed = "authorName" in series
+        from_search_feed = series.get("authorName", None)
 
         # Get author name with proper fallback chain
         author_name = None
         raw_author_name = None
 
-        # Always prioritize getting author from metadata if available,
-        # rather than trusting the potentially incorrect authorName from search
-        if first_book_metadata.get("authorName"):
+        # Check for the first book in library items if we have an ID
+        if first_book_id:
+            try:
+                # Use cached library items if possible
+                library_items = await get_cached_library_items(
+                    fetch_from_api,
+                    self.filter_items,
+                    username,
+                    library_id,
+                    token=token
+                )
+                
+                # Find the book in library items
+                for item in library_items:
+                    if item.get("id") == first_book_id:
+                        # Use media.metadata.authorName from the library item
+                        raw_author_name = item.get('media', {}).get('metadata', {}).get('authorName')
+                        break
+            except Exception as e:
+                logger.error(f"Error checking library items for book ID {first_book_id}: {e}")
+        
+        # Fall back to the first_book_metadata if we couldn't find the book in library items
+        if not raw_author_name and first_book_metadata.get("authorName"):
             raw_author_name = first_book_metadata.get("authorName")
-            if from_search_feed:
-                author_name = f"Series by {raw_author_name}"
-            else:
-                author_name = raw_author_name
-        # Only use the explicit authorName as a fallback
-        elif series.get("authorName") and not series.get("authorName").endswith("None"):
-            author_name = series.get("authorName")
-            # Extract raw author name (without "Series by " prefix) for atom:author element
-            if author_name.startswith("Series by "):
-                raw_author_name = author_name[10:]  # Remove "Series by " prefix
-            else:
-                raw_author_name = author_name
-        # Finally fallback to a generic label
-        else:
+        
+        # Final fallback
+        if not raw_author_name:
             raw_author_name = "Unknown Author"
-            if from_search_feed:
-                author_name = f"Series by {raw_author_name}"
-            else:
-                author_name = raw_author_name
 
+        content_text = raw_author_name
         # Format the content based on the source
         if from_search_feed:
-            # For search feed, ensure it starts with "Series by"
-            if not author_name.startswith("Series by ") and not author_name == "Unknown Series":
                 content_text = f"Series by {raw_author_name}"
-            else:
-                content_text = author_name
-        else:
-            # For series feed, just use the raw author name
-            content_text = raw_author_name
+                logger.info("Adding series to feed from search: %s", content_text)
 
         # Use the direct series route instead of query parameters
         series_id = series.get('id')
@@ -462,6 +463,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         series_items = self.filter_series(data)
 
         for series in series_items:
-            self.add_series_to_feed(username, library_id, feed, series, token)
+            await self.add_series_to_feed(username, library_id, feed, series, token)
 
         return self.create_response(feed)

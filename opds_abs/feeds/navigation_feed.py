@@ -53,13 +53,6 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                             "rel": "start",
                             "type": "application/atom+xml;profile=opds-catalog"
                         }
-                    },
-                    {
-                        "_attrs": {
-                            "href": "/static/images/search.png",
-                            "rel": "search",
-                            "type": "application/opensearchdescription+xml"
-                        }
                     }
                 ]
             }
