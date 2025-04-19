@@ -251,22 +251,41 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         Returns:
             Response: A FastAPI response object containing the XML feed.
         """
+        from opds_abs.utils.cache_utils import get_cached_series_items
+        
         try:
-            # Get items filtered by series (using cache when possible)
-            library_items, series_details = await self.filter_items_by_series_id(
-                    username,
-                    library_id,
-                    series_id,
-                    token=token
+            # Get series details for name and author (still useful for feed metadata)
+            series_details = await get_cached_series_details(
+                fetch_from_api,
+                username,
+                library_id,
+                series_id,
+                token=token
             )
-
+            
+            # Get items for this series directly from items endpoint with series filter
+            # This ensures we get the proper sequence information
+            library_items = await get_cached_series_items(
+                fetch_from_api,
+                self.filter_items,
+                username,
+                library_id,
+                series_id,
+                token=token
+            )
+            
             # Get details for series and author
             series_name = "Unknown Series"
             author_name = "Unknown Author"
             if series_details:
                 series_name = series_details.get("name", "Unknown Series")
+                
+            # Get the most common author if we have library items
+            if library_items:
+                author_name = self.get_most_common_author(library_items)
+            elif series_details:
+                # Fall back to series_details if we have it
                 author_name = series_details.get("authorName", "Unknown Author")
-
 
             # Create the feed
             feed = self.create_base_feed(username, library_id)
@@ -293,14 +312,23 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 dict_to_xml(feed, error_data)
                 return self.create_response(feed)
 
+            # Items should already be sorted by sequence when fetched from the API
+            # But let's ensure they are sorted correctly just to be safe
+            sorted_library_items = sorted(
+                library_items,
+                key=lambda x: float(x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0))
+            )
+            
+            logger.info(f"Sorted {len(sorted_library_items)} items by sequence number for {series_name}")
+
             # Get ebook files for each book
             tasks = []
-            for book in library_items:
+            for book in sorted_library_items:
                 book_id = book.get("id", "")
                 tasks.append(get_download_urls_from_item(book_id, username=username, token=token))
 
             ebook_inos_list = await asyncio.gather(*tasks)
-            for book, ebook_inos in zip(library_items, ebook_inos_list):
+            for book, ebook_inos in zip(sorted_library_items, ebook_inos_list):
                 self.add_book_to_feed(feed, book, ebook_inos, "", token)
 
             return self.create_response(feed)
@@ -358,7 +386,6 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         from_search_feed = series.get("authorName", None)
 
         # Get author name with proper fallback chain
-        author_name = None
         raw_author_name = None
 
         # Check for the first book in library items if we have an ID

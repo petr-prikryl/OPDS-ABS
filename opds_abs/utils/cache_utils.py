@@ -17,6 +17,7 @@ import functools
 import hashlib
 import json
 import asyncio
+import base64
 
 # Local application imports
 from opds_abs.config import (
@@ -24,6 +25,7 @@ from opds_abs.config import (
     LIBRARY_ITEMS_CACHE_EXPIRY,
     SEARCH_RESULTS_CACHE_EXPIRY,
     SERIES_DETAILS_CACHE_EXPIRY,
+    SERIES_ITEMS_CACHE_EXPIRY,  # Add this new constant
     CACHE_PERSISTENCE_ENABLED,
     CACHE_FILE_PATH,
     CACHE_SAVE_INTERVAL,
@@ -440,3 +442,55 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
     
     logger.debug(f"Found {len(authors_list)} authors with ebooks in library {library_id}")
     return authors_list
+
+
+async def get_cached_series_items(fetch_from_api_func, filter_items_func, username, library_id, series_id, token=None, bypass_cache=False):
+    """Fetch and cache items for a specific series by directly querying the items endpoint with series filter.
+    
+    This ensures we get the proper sequence information for items in a series.
+    
+    Args:
+        fetch_from_api_func (callable): The function to fetch data from the API.
+        filter_items_func (callable): The function to filter items.
+        username (str): The username of the authenticated user.
+        library_id (str): ID of the library containing the items.
+        series_id (str): ID of the series to filter by.
+        token (str, optional): Authentication token for Audiobookshelf.
+        bypass_cache (bool): Whether to bypass the cache and force a fresh fetch.
+        
+    Returns:
+        list: Library items filtered by the specified series ID with sequence information.
+    """
+    # Create a cache key for this specific series items
+    cache_key = _create_cache_key(f"/series-items/{library_id}/{series_id}", None, username)
+    
+    # Try to get from cache if not bypassing
+    if not bypass_cache:
+        cached_data = cache_get(cache_key, SERIES_ITEMS_CACHE_EXPIRY)
+        if cached_data is not None:
+            logger.debug(f"✓ Cache hit for series items {series_id}")
+            return cached_data
+    
+    # Not in cache or bypassing cache, query the items endpoint with series filter
+    logger.debug(f"Fetching items for series {series_id} using direct items query")
+    
+    # Create base64 encoded filter for the series ID
+    base64_series_id = base64.b64encode(series_id.encode()).decode()
+    
+    # Query items endpoint with the series filter to get proper sequence information
+    params = {"filter": f"series.{base64_series_id}", "sort": "media.metadata.series.sequence"}
+    data = await fetch_from_api_func(
+        f"/libraries/{library_id}/items",
+        params,
+        username=username,
+        token=token
+    )
+    
+    # Filter items that contain ebooks
+    filtered_items = filter_items_func(data)
+    
+    # Store in cache for future use
+    cache_set(cache_key, filtered_items)
+    
+    logger.debug(f"Found {len(filtered_items)} items for series {series_id}")
+    return filtered_items
