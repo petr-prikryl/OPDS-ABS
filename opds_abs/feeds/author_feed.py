@@ -154,6 +154,9 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                     token=token
             )
 
+            # Sort library items by name
+            library_items.sort(key=lambda item: item.get("media", {}).get("metadata", {}).get("title", "").lower())
+
             # Create the feed
             feed = self.create_base_feed(username, library_id)
 
@@ -173,7 +176,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 error_data = {
                     "entry": {
                         "title": {"_text": "No books found"},
-                        "content": {"_text": f"No books by {author_name} with ebooks were found in this library."}
+                        "content": {"_text": f"No ebooks by {author_name} were found in this library."}
                     }
                 }
                 dict_to_xml(feed, error_data)
