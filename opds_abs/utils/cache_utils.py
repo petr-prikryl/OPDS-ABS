@@ -65,7 +65,24 @@ def _create_cache_key(endpoint: str, params: Optional[Dict] = None, username: Op
 
 
 def load_cache_from_disk() -> None:
-    """Load the cache from disk if available."""
+    """Load the cache from disk if available.
+    
+    This function attempts to restore the previously saved cache state from disk
+    into memory. It first checks if cache persistence is enabled in the configuration.
+    If the cache file exists, it reads and deserializes the data using pickle.
+    
+    The function handles various error conditions gracefully, starting with an empty
+    cache if the file doesn't exist or if there's an error during loading. It also
+    provides detailed logging about the number of items loaded and how many are
+    still valid (non-expired).
+    
+    The function uses a thread lock to ensure thread safety during cache loading.
+    
+    Raises:
+        pickle.PickleError: If there is an error unpickling the cache data.
+        IOError: If there is an error reading the cache file.
+        EOFError: If the cache file is empty or corrupted.
+    """
     global _cache
     
     if not CACHE_PERSISTENCE_ENABLED:
@@ -101,7 +118,20 @@ def load_cache_from_disk() -> None:
 
 
 def save_cache_to_disk() -> None:
-    """Save the current cache to disk for persistence."""
+    """Save the current in-memory cache to disk for persistence.
+    
+    This function writes the current state of the in-memory cache to a pickle file
+    on disk for persistent storage. Before saving, it cleans expired items from the
+    cache. The function also implements rate-limiting to prevent excessive disk writes
+    by only saving if enough time has passed since the last save operation.
+    
+    The function uses a threading lock to prevent race conditions during save operations.
+    If cache persistence is disabled in the configuration, this function does nothing.
+    
+    Raises:
+        pickle.PickleError: If there is an error pickling the cache data.
+        IOError: If there is an error writing to the cache file.
+    """
     global _last_save_time
     
     if not CACHE_PERSISTENCE_ENABLED:
@@ -184,7 +214,18 @@ def cache_set(key: str, data: Any) -> None:
 
 
 def clear_cache() -> None:
-    """Clear all cached items."""
+    """Clear all cached items from memory and disk.
+    
+    This function removes all entries from the in-memory cache dictionary,
+    effectively invalidating all cached data. If cache persistence is enabled
+    in the configuration, it also triggers a save of the empty cache to disk,
+    overwriting the previous cache file.
+    
+    The function uses a thread lock to ensure thread safety during the operation.
+    
+    Returns:
+        None
+    """
     with _cache_lock:
         _cache.clear()
     
