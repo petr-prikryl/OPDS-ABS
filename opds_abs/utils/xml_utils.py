@@ -1,4 +1,4 @@
-"""XML utility functions for working with OPDS feeds"""
+"""Utility functions for translating Python dictionaries to XML elements for OPDS feeds."""
 # Standard library imports
 from typing import Dict, Any
 
@@ -7,8 +7,7 @@ from lxml import etree
 
 
 def dict_to_xml(parent_element, data: Dict[str, Any]) -> None:
-    """
-    Convert a dictionary structure to XML elements and add them to the parent element.
+    """Convert a dictionary structure to XML elements and add them to the parent element.
 
     The dictionary should have element names as keys and their content/attributes as values.
     Special keys:

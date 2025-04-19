@@ -1,5 +1,7 @@
 # OPDS Server for Audiobookshelf
 
+[![Docstring Check](https://github.com/petr-prikryl/OPDS-ABS/actions/workflows/docstring-check.yml/badge.svg)](https://github.com/petr-prikryl/OPDS-ABS/actions/workflows/docstring-check.yml)
+
 This project provides an OPDS (Open Publication Distribution System) server that fetches books from the **Audiobookshelf API** and presents them in OPDS format, making it easy to browse and download books in supported OPDS clients.
 
 ## 🚀 Features
@@ -8,7 +10,7 @@ This project provides an OPDS (Open Publication Distribution System) server that
 - **Supports OPDS** for easy integration with reading apps
 - **Simple authentication** using API key
 - **Dockerized** for easy deployment
-- **Lightweight web interface** 
+- **Lightweight web interface**
 
 ## 🚀 To DO
   -  **OPDS-PS**
@@ -57,7 +59,7 @@ services:
 
 ```
 
-Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is required. CHange names For John, Jan and guest as you want 
+Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is required. CHange names For John, Jan and guest as you want
 
 ## 🐳 Running from GitHub Container Registry (GHCR)
 
@@ -82,7 +84,25 @@ This project is licensed under the **MIT License**. See `LICENSE` for details.
 
 Pull requests are welcome! If you find a bug or want to suggest improvements, open an **issue** on GitHub.
 
+### Development Setup
+
+1. Install development dependencies:
+   ```bash
+   pip install -r requirements-dev.txt
+   ```
+
+2. Set up pre-commit hooks:
+   ```bash
+   pre-commit install
+   ```
+
+3. Before submitting a PR, ensure your code passes all checks:
+   ```bash
+   ./docstring-check.py
+   ```
+
+For more information about our documentation standards, see [DOCS_STANDARDS.md](DOCS_STANDARDS.md).
+
 ---
 
 Made with ❤️ for Audiobookshelf users.
-

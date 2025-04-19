@@ -1,4 +1,4 @@
-"""Collections feed generator"""
+"""Collections feed generator."""
 # Standard library imports
 import logging
 import asyncio
@@ -303,7 +303,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             dict_to_xml(feed, {"link": link})
 
     def add_collection_to_feed(self, username, library_id, feed, collection, token=None):
-        """Add a collection to the feed
+        """Add a collection to the feed.
 
         Args:
             username (str): The username requesting the feed.
@@ -502,9 +502,9 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         try:
             # Make an API call to get all collections
             collections_data = await fetch_from_api(
-                f"/libraries/{library_id}/collections", 
+                f"/libraries/{library_id}/collections",
                 {"limit": 1000, "sort": "name"},
-                username=username, 
+                username=username,
                 token=token
             )
 

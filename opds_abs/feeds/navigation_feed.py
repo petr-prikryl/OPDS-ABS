@@ -1,4 +1,4 @@
-"""Navigation feed generator"""
+"""Generator for OPDS navigation feeds with browsing options for Audiobookshelf libraries."""
 # Standard library imports
 import logging
 
