@@ -688,14 +688,17 @@ async def get_cache_stats(auth_info: tuple = Depends(require_auth)):
                       age information, and estimated size.
     """
     try:
+        # Import here to ensure we're using the same _cache instance
+        from opds_abs.utils.cache_utils import _cache as current_cache
+        
         now = time.time()
         stats = {
-            "total_entries": len(_cache),
+            "total_entries": len(current_cache),
             "entries": []
         }
 
         # Calculate memory usage and age of each entry
-        for key, (timestamp, data) in _cache.items():
+        for key, (timestamp, data) in current_cache.items():
             age = int(now - timestamp)
             stats["entries"].append({
                 "key": key[:8] + "...",  # Show truncated key for privacy
@@ -767,3 +770,20 @@ async def invalidate_specific_cache(
     except Exception as e:
         log_error(e, context=f"Invalidating cache for {endpoint}")
         raise CacheError(f"Failed to invalidate cache for {endpoint}") from e
+
+
+@app.get("/cache/clear")
+async def cache_clear_endpoint():
+    """Clear all cached items.
+
+    Returns:
+        JSONResponse: Confirmation of cache cleared.
+    """
+    try:
+        clear_cache()
+        logger.info("Cache cleared successfully")
+        return JSONResponse(content={"status": "success", "message": "Cache cleared successfully"})
+    except Exception as e:
+        log_error(e, context="Clearing cache")
+        raise convert_to_http_exception(e, status_code=500,
+            detail="Failed to clear cache") from e
