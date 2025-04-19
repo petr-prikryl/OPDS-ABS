@@ -1,6 +1,4 @@
-"""
-This module provides navigation menu items for the OPDS feed.
-"""
+"""This module provides navigation menu items for the OPDS feed."""
 navigation = [
         {
             "name":   "Items",

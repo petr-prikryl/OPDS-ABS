@@ -1,4 +1,4 @@
-"""Library items feed generator"""
+"""Library items feed generator."""
 # Standard library imports
 import asyncio
 import logging
@@ -18,21 +18,21 @@ logger = logging.getLogger(__name__)
 
 class LibraryFeedGenerator(BaseFeedGenerator):
     """Generator for library items feed.
-    
+
     This class creates OPDS feeds for Audiobookshelf libraries and their contents.
     It handles generating the root feed that lists all available libraries for a user,
     as well as library-specific feeds that display books within a library.
-    
+
     The class supports various filtering and sorting options, including collection-based
     filtering and special feeds like "recent" items. It also optimizes performance by
     using cached library items when appropriate.
-    
+
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
     """
 
     async def generate_root_feed(self, username, token=None):
-        """Generate the root feed with libraries
+        """Generate the root feed with libraries.
 
         Args:
             username (str): The username of the authenticated user.
@@ -90,7 +90,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         return self.create_response(feed)
 
     async def generate_library_items_feed(self, username, library_id, params=None, token=None):
-        """Display all items in the library
+        """Display all items in the library.
 
         Args:
             username (str): The username of the authenticated user.
@@ -204,10 +204,10 @@ class LibraryFeedGenerator(BaseFeedGenerator):
 
             # Get library items from cache utility
             cached_items = await get_cached_library_items(
-                fetch_from_api, 
+                fetch_from_api,
                 self.filter_items,
-                username, 
-                library_id, 
+                username,
+                library_id,
                 token=token
             )
 
