@@ -17,7 +17,19 @@ from opds_abs.utils.cache_utils import get_cached_library_items
 logger = logging.getLogger(__name__)
 
 class LibraryFeedGenerator(BaseFeedGenerator):
-    """Generator for library items feed"""
+    """Generator for library items feed.
+    
+    This class creates OPDS feeds for Audiobookshelf libraries and their contents.
+    It handles generating the root feed that lists all available libraries for a user,
+    as well as library-specific feeds that display books within a library.
+    
+    The class supports various filtering and sorting options, including collection-based
+    filtering and special feeds like "recent" items. It also optimizes performance by
+    using cached library items when appropriate.
+    
+    Attributes:
+        Inherits all attributes from BaseFeedGenerator.
+    """
 
     async def generate_root_feed(self, username, token=None):
         """Generate the root feed with libraries

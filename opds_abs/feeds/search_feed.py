@@ -176,7 +176,14 @@ class SearchFeedGenerator(BaseFeedGenerator):
         self.add_book_to_feed(feed, lib_item, ebook_inos, "", token=token)
 
     def _has_ebook_file(self, lib_item):
-        """Check if a library item has an ebook file."""
+        """Check if a library item has an ebook file.
+        
+        Args:
+            lib_item: Dictionary containing library item metadata from Audiobookshelf API.
+            
+        Returns:
+            bool: True if the item has an ebook file or format, False otherwise.
+        """
         media = lib_item.get("media", {})
         return bool(media.get("ebookFile", media.get("ebookFormat", None)))
 
