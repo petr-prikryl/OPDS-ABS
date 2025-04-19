@@ -1,4 +1,4 @@
-"""Series feed generator"""
+"""Series feed generator."""
 # Standard library imports
 import logging
 import asyncio
@@ -16,15 +16,15 @@ logger = logging.getLogger(__name__)
 
 class SeriesFeedGenerator(BaseFeedGenerator):
     """Generator for series feed.
-    
+
     This class creates OPDS feeds that list series from an Audiobookshelf library and
     the books contained within specific series. It includes methods for fetching
     series details, filtering items by series, and generating series-based feeds.
-    
+
     The class handles both listing all series in a library and displaying the books
     within a specific series, with proper sorting by sequence number when applicable.
     It also includes helper methods to determine the most common author for a series.
-    
+
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
     """
@@ -264,7 +264,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         from opds_abs.utils.cache_utils import get_cached_series_items
-        
+
         try:
             # Get series details for name and author (still useful for feed metadata)
             series_details = await get_cached_series_details(
@@ -274,7 +274,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 series_id,
                 token=token
             )
-            
+
             # Get items for this series directly from items endpoint with series filter
             # This ensures we get the proper sequence information
             library_items = await get_cached_series_items(
@@ -285,13 +285,13 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 series_id,
                 token=token
             )
-            
+
             # Get details for series and author
             series_name = "Unknown Series"
             author_name = "Unknown Author"
             if series_details:
                 series_name = series_details.get("name", "Unknown Series")
-                
+
             # Get the most common author if we have library items
             if library_items:
                 author_name = self.get_most_common_author(library_items)
@@ -330,7 +330,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 library_items,
                 key=lambda x: float(x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0))
             )
-            
+
             logger.info(f"Sorted {len(sorted_library_items)} items by sequence number for {series_name}")
 
             # Get ebook files for each book
@@ -378,7 +378,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         return filtered_results
 
     async def add_series_to_feed(self, username, library_id, feed, series, token=None):
-        """Add a series to the feed
+        """Add a series to the feed.
 
         Args:
             username (str): The username requesting the feed.
@@ -411,7 +411,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                     library_id,
                     token=token
                 )
-                
+
                 # Find the book in library items
                 for item in library_items:
                     if item.get("id") == first_book_id:
@@ -420,11 +420,11 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                         break
             except Exception as e:
                 logger.error(f"Error checking library items for book ID {first_book_id}: {e}")
-        
+
         # Fall back to the first_book_metadata if we couldn't find the book in library items
         if not raw_author_name and first_book_metadata.get("authorName"):
             raw_author_name = first_book_metadata.get("authorName")
-        
+
         # Final fallback
         if not raw_author_name:
             raw_author_name = "Unknown Author"
@@ -475,7 +475,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         dict_to_xml(feed, entry_data)
 
     async def generate_series_feed(self, username, library_id, token=None):
-        """Display all series in the library
+        """Display all series in the library.
 
         Args:
             username (str): The username requesting the feed.

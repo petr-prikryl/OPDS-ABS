@@ -1,2 +1,6 @@
 -r requirements.txt
 pylint
+pydocstyle
+flake8
+flake8-docstrings
+pre-commit

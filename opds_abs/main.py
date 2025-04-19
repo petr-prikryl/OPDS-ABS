@@ -477,16 +477,25 @@ async def opds_series_items(
     series_id: str,
     auth_info: tuple = Depends(get_authenticated_user)
 ):
-    """Get items from a specific series using cached data when possible.
+    """Get items from a specific series.
+
+    This endpoint retrieves books belonging to a particular series within a library.
+    It uses cached data when possible to optimize performance and applies proper
+    sorting based on series sequence numbers.
 
     Args:
-        username (str): The username path parameter.
-        library_id (str): ID of the library to get items from.
-        series_id (str): ID of the series to filter by.
+        username (str): The username path parameter identifying the user.
+        library_id (str): ID of the library containing the series.
+        series_id (str): ID of the specific series to get books from.
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
-        Response: The items feed for books in the specified series.
+        Response: An OPDS feed containing books from the specified series,
+                 sorted by their sequence number within the series.
+
+    Raises:
+        ResourceNotFoundError: If the specified series doesn't exist.
+        FeedGenerationError: If there's an error generating the feed.
     """
     try:
         auth_username, token, display_name = auth_info
@@ -690,7 +699,7 @@ async def get_cache_stats(auth_info: tuple = Depends(require_auth)):
     try:
         # Import here to ensure we're using the same _cache instance
         from opds_abs.utils.cache_utils import _cache as current_cache
-        
+
         now = time.time()
         stats = {
             "total_entries": len(current_cache),
