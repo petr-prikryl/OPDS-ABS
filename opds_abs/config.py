@@ -23,6 +23,7 @@ LIBRARIES_CACHE_EXPIRY = int(os.getenv("LIBRARIES_CACHE_EXPIRY", "3600")) # Defa
 LIBRARY_ITEMS_CACHE_EXPIRY = int(os.getenv("LIBRARY_ITEMS_CACHE_EXPIRY", "1800"))  # Default: 30 minutes
 SEARCH_RESULTS_CACHE_EXPIRY = int(os.getenv("SEARCH_RESULTS_CACHE_EXPIRY", "600"))  # Default: 10 minutes
 SERIES_DETAILS_CACHE_EXPIRY = int(os.getenv("SERIES_DETAILS_CACHE_EXPIRY", "3600"))  # Default: 1 hour
+SERIES_ITEMS_CACHE_EXPIRY = int(os.getenv("SERIES_ITEMS_CACHE_EXPIRY", "1800"))  # Default: 30 minutes
 
 # Cache persistence configuration
 CACHE_PERSISTENCE_ENABLED = os.getenv("CACHE_PERSISTENCE_ENABLED", "true").lower() == "true"
