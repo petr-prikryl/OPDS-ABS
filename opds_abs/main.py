@@ -436,6 +436,13 @@ async def opds_library(
 
     Returns:
         Response: The items feed for the specified library.
+
+    Query Parameters:
+        start_index (int): Starting index for pagination (1-based).
+        sort (str): Field to sort results by.
+        desc (str): If present, sort in descending order.
+        collection (str): ID of a collection to filter by.
+        filter (str): Additional filter criteria.
     """
     try:
         auth_username, token, display_name = auth_info
@@ -453,6 +460,11 @@ async def opds_library(
         effective_username = display_name if auth_username else username
 
         params = dict(request.query_params)
+
+        # Log pagination parameters for debugging
+        if 'start_index' in params:
+            logger.debug(f"Pagination requested with start_index: {params['start_index']}")
+
         return await library_feed.generate_library_items_feed(
             effective_username,
             library_id,
