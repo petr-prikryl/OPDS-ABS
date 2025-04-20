@@ -30,5 +30,8 @@ CACHE_PERSISTENCE_ENABLED = os.getenv("CACHE_PERSISTENCE_ENABLED", "true").lower
 CACHE_FILE_PATH = os.getenv("CACHE_FILE_PATH", str(pathlib.Path(__file__).parent / "data" / "cache.pkl"))
 CACHE_SAVE_INTERVAL = int(os.getenv("CACHE_SAVE_INTERVAL", "300"))  # Save cache every 5 minutes by default
 
+# Pagination configuration
+ITEMS_PER_PAGE = int(os.getenv("ITEMS_PER_PAGE", "25"))  # Default: 25 items per page
+
 # Logging configuration
 LOG_LEVEL = os.environ.get("OPDS_LOG_LEVEL", "INFO").upper()
