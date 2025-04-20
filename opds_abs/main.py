@@ -2,11 +2,51 @@
 
 This module contains all the FastAPI route definitions for the OPDS-ABS application
 and configures the logging for the application.
+
+Application Architecture:
+----------------------
+OPDS-ABS follows a layered architecture pattern:
+
+1. API Layer (main.py):
+   - FastAPI route handlers that process HTTP requests
+   - Authentication via Depends(get_authenticated_user)
+   - Exception handling and conversion to OPDS-compatible responses
+   - Basic validation of request parameters
+
+2. Service Layer (feeds/*.py):
+   - Feed generators that transform data into OPDS XML
+   - Caching mechanisms to optimize performance
+   - Integration with external APIs
+
+3. Data Access Layer (api/client.py):
+   - Communication with Audiobookshelf API
+   - Request formatting and response parsing
+   - Error handling for API communication
+
+4. Utility Layer (utils/*.py):
+   - Authentication utilities
+   - Caching implementation
+   - Error handling and logging
+   - XML utilities for feed generation
+
+OPDS Compliance:
+--------------
+The application implements the OPDS 1.2 catalog specification, providing:
+- Navigation feeds
+- Acquisition feeds
+- Search functionality
+- Proper MIME types and relationships
+- Basic authentication support
+
+Each route in this file corresponds to a specific OPDS feed type, with common
+error handling and authentication patterns applied consistently.
 """
 # Standard library imports
 import logging
 import time
 import atexit
+from contextlib import asynccontextmanager
+
 
 # Third-party imports
 from fastapi import FastAPI, Request, HTTPException, Depends
@@ -106,11 +146,25 @@ collection_feed = CollectionFeedGenerator()
 author_feed = AuthorFeedGenerator()
 search_feed = SearchFeedGenerator()
 
+# Create startup and shutdown sequences for loading cache
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Load the cache from disk on application startup."""
+    if CACHE_PERSISTENCE_ENABLED:
+        logger.info("Loading cache from disk...")
+        load_cache_from_disk()
+    yield
+    """Save the cache to disk on application shutdown."""
+    if CACHE_PERSISTENCE_ENABLED:
+        logger.info("Saving cache to disk...")
+        save_cache_to_disk()
+
 # Create FastAPI app
 app = FastAPI(
     title="OPDS-ABS",
     description="OPDS server for Audiobookshelf",
-    version="0.1.0"
+    version="0.1.0",
+    lifespan=lifespan
 )
 
 # Mount static files directory
@@ -118,22 +172,6 @@ app.mount("/static", StaticFiles(directory="opds_abs/static"), name="static")
 
 # Setup templates
 templates = Jinja2Templates(directory="opds_abs/templates")
-
-# Startup event to load cache from disk
-@app.on_event("startup")
-async def startup_event():
-    """Load the cache from disk on application startup."""
-    if CACHE_PERSISTENCE_ENABLED:
-        logger.info("Loading cache from disk...")
-        load_cache_from_disk()
-
-# Shutdown event to save cache to disk
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Save the cache to disk on application shutdown."""
-    if CACHE_PERSISTENCE_ENABLED:
-        logger.info("Saving cache to disk...")
-        save_cache_to_disk()
 
 # Register atexit handler as a backup for when the shutdown event doesn't fire
 if CACHE_PERSISTENCE_ENABLED:
