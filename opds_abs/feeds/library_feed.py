@@ -27,6 +27,15 @@ class LibraryFeedGenerator(BaseFeedGenerator):
     filtering and special feeds like "recent" items. It also optimizes performance by
     using cached library items when appropriate.
 
+    The LibraryFeedGenerator is part of the feed hierarchy that inherits from
+    BaseFeedGenerator. It works with other feed generators like SeriesFeedGenerator
+    and AuthorFeedGenerator to provide a complete OPDS catalog experience.
+
+    Related Classes:
+        - BaseFeedGenerator: Parent class providing core feed generation functionality
+        - NavigationFeedGenerator: Creates navigational entry points to library views
+        - CollectionFeedGenerator: Handles collection-specific views
+
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
     """
@@ -34,12 +43,31 @@ class LibraryFeedGenerator(BaseFeedGenerator):
     async def generate_root_feed(self, username, token=None):
         """Generate the root feed with libraries.
 
+        This method creates the top-level OPDS feed that lists all available libraries
+        for a user. If the user has only one library, it automatically redirects to
+        that library's feed for a smoother user experience.
+
         Args:
             username (str): The username of the authenticated user.
             token (str, optional): Authentication token for Audiobookshelf.
 
         Returns:
             Response: The root feed listing available libraries.
+
+        Example:
+            ```python
+            # In a FastAPI route handler:
+            @app.get("/opds/{username}")
+            async def opds_root(username: str):
+                # Create library feed generator
+                feed_gen = LibraryFeedGenerator()
+
+                # Generate the root feed for this user
+                return await feed_gen.generate_root_feed(
+                    username=username,
+                    token="user_auth_token"
+                )
+            ```
         """
         # Test log message
         logger.info(f"Generating root feed for user: {username}")
@@ -90,16 +118,55 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         return self.create_response(feed)
 
     async def generate_library_items_feed(self, username, library_id, params=None, token=None):
-        """Display all items in the library.
+        """Display all items in the library with optional filtering and sorting.
+
+        This method generates an OPDS feed containing all ebook items in a specific library.
+        It supports various filtering options including collection-based filtering and
+        different sort orders. The method optimizes performance by using cached data
+        for common view types like alphabetically sorted lists or recently added items.
 
         Args:
-            username (str): The username of the authenticated user.
+            username (str): The username of the authenticated user who is accessing the feed.
             library_id (str): ID of the library to fetch items from.
-            params (dict, optional): Query parameters for filtering and sorting.
-            token (str, optional): Authentication token for Audiobookshelf.
+            params (dict, optional): Query parameters for filtering and sorting. Supported keys:
+                - collection: ID of a collection to filter items by
+                - sort: Field to sort by (e.g., 'addedAt', 'media.metadata.title')
+                - desc: If present, sort in descending order
+                - filter: Additional filter criteria
+            token (str, optional): Authentication token for Audiobookshelf API access.
 
         Returns:
-            Response: The items feed for the specified library.
+            Response: A FastAPI response object containing the XML OPDS feed with all
+                     matching ebook items from the library.
+
+        Example:
+            ```python
+            # In a FastAPI route handler:
+            @app.get("/opds/{username}/libraries/{library_id}/items")
+            async def opds_library(
+                username: str,
+                library_id: str,
+                request: Request
+            ):
+                # Get query parameters
+                params = dict(request.query_params)
+
+                # Create library feed generator
+                feed_gen = LibraryFeedGenerator()
+
+                # Generate a feed of recently added items
+                if "recent" in request.path:
+                    params["sort"] = "addedAt"
+                    params["desc"] = "true"
+
+                # Generate the items feed with the specified parameters
+                return await feed_gen.generate_library_items_feed(
+                    username=username,
+                    library_id=library_id,
+                    params=params,
+                    token="user_auth_token"  # Optional
+                )
+            ```
         """
         params = params if params else {}
 

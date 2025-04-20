@@ -19,6 +19,30 @@ class BaseFeedGenerator:
     This class provides the foundation for generating OPDS (Open Publication Distribution System)
     feeds for Audiobookshelf content. It includes methods for creating feed structures,
     adding book entries, filtering content, and generating responses.
+
+    Architecture Overview:
+    ---------------------
+    The OPDS-ABS application uses a hierarchical feed generation system where this base class
+    provides common functionality, and specialized subclasses implement specific feed types:
+
+    - LibraryFeedGenerator: Root feed and library items feeds
+    - NavigationFeedGenerator: Navigation feeds for different content views
+    - SeriesFeedGenerator: Series lists and series item feeds
+    - AuthorFeedGenerator: Author listings and author-specific item feeds
+    - CollectionFeedGenerator: Collection listings and collection-specific item feeds
+    - SearchFeedGenerator: Search results feeds
+
+    Each specialized generator builds on the base functionality to create OPDS-compliant
+    XML feeds for different sections of the application. The system is designed to be
+    extensible, allowing new feed types to be added easily.
+
+    Components Interaction:
+    ---------------------
+    1. Feed generators are instantiated in the main.py FastAPI application
+    2. Route handlers call specific generator methods based on the requested endpoint
+    3. Generators fetch data using the API client and cache mechanisms
+    4. XML feeds are built using the helper methods in this base class
+    5. Responses are returned to the client in OPDS-compliant format
     """
 
     def __init__(self):
@@ -86,15 +110,54 @@ class BaseFeedGenerator:
     def add_book_to_feed(self, feed, book, ebook_inos, query_filter="", token=None):
         """Add a book to the feed with all its metadata.
 
+        This method creates an OPDS entry for a book in the feed, including its metadata,
+        download links, and cover image. It handles various book formats and ensures
+        proper linking with authentication tokens when required.
+
         Args:
             feed (Element): The lxml Element to add the book entry to.
-            book (dict): Dictionary containing book data.
-            ebook_inos (list): List of ebook identifier objects.
+            book (dict): Dictionary containing book data from Audiobookshelf API.
+            ebook_inos (list): List of ebook identifier objects containing ino numbers.
             query_filter (str, optional): Filter string to customize the entry. Defaults to "".
             token (str, optional): Authentication token to use for download links.
 
         Raises:
             FeedGenerationError: If there's an error adding the book to the feed.
+
+        Example:
+            ```python
+            # In a feed generator method:
+            async def generate_custom_feed(self, username, library_id, token=None):
+                # Create the base feed
+                feed = self.create_base_feed(username, library_id)
+
+                # Get library items (filtered for ebooks)
+                items = await get_cached_library_items(
+                    fetch_from_api,
+                    self.filter_items,
+                    username,
+                    library_id,
+                    token=token
+                )
+
+                # For each book, get its ebook files and add it to the feed
+                for book in items:
+                    ebook_files = await get_download_urls_from_item(
+                        book.get("id", ""),
+                        username=username,
+                        token=token
+                    )
+
+                    # Add the book to the feed
+                    self.add_book_to_feed(
+                        feed=feed,
+                        book=book,
+                        ebook_inos=ebook_files,
+                        token=token
+                    )
+
+                return self.create_response(feed)
+            ```
         """
         try:
             media = book.get("media", {})

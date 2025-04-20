@@ -5,7 +5,6 @@ This script runs pydocstyle checks against the codebase and produces a readable 
 of missing or malformed docstrings. It provides options for checking specific files or
 directories and can generate detailed or summary reports.
 """
-import os
 import sys
 import argparse
 import subprocess
