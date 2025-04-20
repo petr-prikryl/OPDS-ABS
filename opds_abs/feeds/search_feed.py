@@ -20,7 +20,33 @@ class SearchFeedGenerator(BaseFeedGenerator):
     """Generator for search feed.
 
     This class creates OPDS feeds for search results from an Audiobookshelf library,
-    including books, series, and authors that match a search query.
+    including books, series, and authors that match a search query. The search functionality
+    is a critical component of the OPDS catalog, allowing users to find content across
+    different organizational structures.
+
+    Architecture Integration:
+    -----------------------
+    The SearchFeedGenerator serves as a composite feed generator that integrates results
+    from multiple content types. It leverages other feed generators (SeriesFeedGenerator
+    and AuthorFeedGenerator) to handle the presentation of specialized content types
+    within the unified search results feed.
+
+    Search results are intelligently processed to ensure that only items with available
+    ebook files are included, and series/author entries are enhanced with additional
+    metadata derived from the library items.
+
+    Performance Optimization:
+    -----------------------
+    This generator heavily utilizes caching to improve performance:
+    - Search results are cached to avoid repeated API calls for the same query
+    - Library items are pre-fetched and cached for metadata lookups
+    - Author and series information is derived from cached data where possible
+
+    Related Components:
+    -----------------
+    - SeriesFeedGenerator: Used for rendering series entries in search results
+    - AuthorFeedGenerator: Used for rendering author entries in search results
+    - cache_utils: Provides caching mechanisms for search results and library items
 
     Attributes:
         Inherits all attributes from BaseFeedGenerator.
@@ -29,14 +55,57 @@ class SearchFeedGenerator(BaseFeedGenerator):
     async def generate_search_feed(self, username, library_id, params=None, token=None):
         """Search for books, series, and authors in the library.
 
+        This method processes search requests and generates an OPDS feed containing
+        matching books, series, and authors. It handles token management, empty queries,
+        and integrates with the caching system to optimize performance.
+
         Args:
             username (str): The username of the authenticated user.
             library_id (str): ID of the library to search in.
-            params (dict, optional): Query parameters for filtering and search.
+            params (dict, optional): Query parameters for filtering and search. The key
+                parameters are:
+                - q: The search query string
+                - token: Optional authentication token (alternative to the token parameter)
             token (str, optional): Authentication token for Audiobookshelf.
 
         Returns:
-            Response: The search results feed.
+            Response: The search results feed containing matching books, series, and authors.
+
+        Example:
+            ```python
+            # In a FastAPI route handler:
+            @app.get("/opds/{username}/libraries/{library_id}/search")
+            async def opds_search(
+                username: str,
+                library_id: str,
+                request: Request,
+                auth_info: tuple = Depends(get_authenticated_user)
+            ):
+                try:
+                    auth_username, token, display_name = auth_info
+
+                    # Get query parameters from the request
+                    params = dict(request.query_params)
+
+                    # Use appropriate username based on authentication
+                    effective_username = display_name if auth_username else username
+
+                    # Initialize the search feed generator
+                    search_feed = SearchFeedGenerator()
+
+                    # Generate and return the search results feed
+                    return await search_feed.generate_search_feed(
+                        effective_username,
+                        library_id,
+                        params,
+                        token=token
+                    )
+                except Exception as e:
+                    # Handle exceptions appropriately
+                    context = f"Searching in library {library_id} for user {username}"
+                    log_error(e, context=context)
+                    return handle_exception(e, context=context)
+            ```
         """
         params = params or {}
         query = params.get("q", "")

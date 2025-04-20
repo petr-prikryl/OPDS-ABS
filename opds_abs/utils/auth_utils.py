@@ -2,6 +2,30 @@
 
 This module provides authentication functionality for the application, including
 basic auth validation against the Audiobookshelf login endpoint.
+
+Authentication Architecture:
+-------------------------
+The OPDS-ABS application uses a multi-layered authentication system:
+
+1. Client Authentication Flow:
+   Request → Basic Auth Header → verify_credentials() → Audiobookshelf API → Token
+
+2. Component Relationships:
+   - FastAPI dependency injection system for auth requirements
+   - TOKEN_CACHE for in-memory token storage
+   - Persistent cache for tokens across app restarts
+   - Configurable authentication via AUTH_ENABLED flag
+
+3. Authentication Methods:
+   - Basic Auth with username/password (primary)
+   - Token-based authentication via URL parameters (secondary)
+   - Authentication can be disabled completely for development/testing
+
+Integration with OPDS:
+-------------------
+The authentication system is designed to be compatible with OPDS clients
+that support HTTP Basic Authentication, while also accommodating clients
+that only support token-based auth via URL parameters.
 """
 import base64
 import logging
