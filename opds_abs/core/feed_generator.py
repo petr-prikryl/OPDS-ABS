@@ -55,19 +55,24 @@ class BaseFeedGenerator:
         The initialized feed includes:
         - xmlns="http://www.w3.org/2005/Atom" namespace
         - opds="http://opds-spec.org/2010/catalog" namespace mapping
+        - opensearch="http://a9.com/-/spec/opensearch/1.1/" namespace mapping for pagination
         """
         self.base_feed = etree.Element(
             "feed",
             xmlns="http://www.w3.org/2005/Atom",
-            nsmap={"opds": "http://opds-spec.org/2010/catalog"}
+            nsmap={
+                "opds": "http://opds-spec.org/2010/catalog",
+                "opensearch": "http://a9.com/-/spec/opensearch/1.1/"
+            }
         )
 
-    def create_base_feed(self, username=None, library_id=None):
+    def create_base_feed(self, username=None, library_id=None, current_path=None):
         """Create a copy of the base feed with optional search link.
 
         Args:
             username (str, optional): Username for personalized feed. Defaults to None.
             library_id (str, optional): Library ID to associate with the feed. Defaults to None.
+            current_path (str, optional): Current path for pagination links. Defaults to None.
 
         Returns:
             Element: An lxml Element object representing the base feed structure.
@@ -84,6 +89,47 @@ class BaseFeedGenerator:
                 }
             }
             dict_to_xml(base_feed, search_link)
+
+            if current_path:
+                # Add start link
+                start_link = {
+                    "link": {
+                        "_attrs": {
+                            "rel": "start",
+                            "title": "Start Page",
+                            "type": "application/atom+xml;profile=opds-catalog",
+                            "href": f"/opds/{username}/libraries/{library_id}"
+                        }
+                    }
+                }
+                dict_to_xml(base_feed, start_link)
+
+                # Add self link
+                self_link = {
+                    "link": {
+                        "_attrs": {
+                            "rel": "self",
+                            "title": "This Page",
+                            "type": "application/atom+xml;profile=opds-catalog",
+                            "href": f"/opds/{current_path}"
+                        }
+                    }
+                }
+                dict_to_xml(base_feed, self_link)
+
+                # Add HTML alternate link
+                alternate_link = {
+                    "link": {
+                        "_attrs": {
+                            "rel": "alternate",
+                            "title": "HTML Page",
+                            "type": "text/html",
+                            "href": f"/opds/{current_path}"
+                        }
+                    }
+                }
+                dict_to_xml(base_feed, alternate_link)
+
         return base_feed
 
     def create_response(self, feed):
@@ -331,3 +377,112 @@ class BaseFeedGenerator:
             # Just log here but don't raise as this is a utility function
             log_error(e, context=f"Extracting value from path {path}")
             return None
+
+    def add_pagination_metadata(self, feed, page, items_per_page, total_items):
+        """Add OpenSearch pagination metadata elements to the feed.
+
+        Args:
+            feed (Element): The XML feed to add pagination metadata to
+            page (int): Current page number (1-based)
+            items_per_page (int): Number of items per page
+            total_items (int): Total number of items across all pages
+        """
+        start_index = (page - 1) * items_per_page + 1  # OpenSearch is 1-indexed
+
+        # Add opensearch elements
+        items_per_page_el = etree.SubElement(feed, "{http://a9.com/-/spec/opensearch/1.1/}itemsPerPage")
+        items_per_page_el.text = str(items_per_page)
+
+        start_index_el = etree.SubElement(feed, "{http://a9.com/-/spec/opensearch/1.1/}startIndex")
+        start_index_el.text = str(start_index)
+
+        total_results_el = etree.SubElement(feed, "{http://a9.com/-/spec/opensearch/1.1/}totalResults")
+        total_results_el.text = str(total_items)
+
+    def add_pagination_links(self, feed, current_path, page, items_per_page, total_items, token=None):
+        """Add next/previous pagination links to the feed.
+
+        Args:
+            feed (Element): The XML feed to add pagination links to
+            current_path (str): Current path excluding query parameters
+            page (int): Current page number (1-based)
+            items_per_page (int): Number of items per page
+            total_items (int): Total number of items
+            token (str, optional): Authentication token
+        """
+        total_pages = (total_items + items_per_page - 1) // items_per_page  # Ceiling division
+
+        # Base URL parameters
+        auth_param = f"&token={token}" if token else ""
+
+        # Check if current_path already has parameters
+        has_params = "?" in current_path
+
+        # Add next page link if there are more pages
+        if page < total_pages:
+            next_page = page + 1
+            next_start_index = (next_page - 1) * items_per_page + 1
+
+            # Use correct separator based on existing parameters
+            separator = "&" if has_params else "?"
+
+            next_link = {
+                "link": {
+                    "_attrs": {
+                        "rel": "next",
+                        "title": "Next Page",
+                        "type": "application/atom+xml;profile=opds-catalog",
+                        "href": f"/opds/{current_path}{separator}start_index={next_start_index}{auth_param}"
+                    }
+                }
+            }
+            dict_to_xml(feed, next_link)
+
+        # Add previous page link if not on first page
+        if page > 1:
+            prev_page = page - 1
+            prev_start_index = (prev_page - 1) * items_per_page + 1
+
+            # Use correct separator based on existing parameters
+            separator = "&" if has_params else "?"
+
+            prev_link = {
+                "link": {
+                    "_attrs": {
+                        "rel": "previous",
+                        "title": "Previous Page",
+                        "type": "application/atom+xml;profile=opds-catalog",
+                        "href": f"/opds/{current_path}{separator}start_index={prev_start_index}{auth_param}"
+                    }
+                }
+            }
+            dict_to_xml(feed, prev_link)
+
+    def paginate_results(self, items, start_index, items_per_page):
+        """Paginate results based on the start index and items per page.
+
+        Args:
+            items (list): List of items to paginate
+            start_index (int): 1-based start index (will be converted to 0-based for slicing)
+            items_per_page (int): Number of items per page, 0 means show all items
+
+        Returns:
+            list: Paginated list of items
+        """
+        if not items:
+            return []
+
+        # If items_per_page is 0, return all items (no pagination)
+        if items_per_page <= 0:
+            return items
+
+        # Convert 1-based OpenSearch index to 0-based Python index
+        start_idx = start_index - 1 if start_index > 0 else 0
+
+        # Ensure start_idx is within range
+        if start_idx >= len(items):
+            start_idx = 0
+
+        end_idx = start_idx + items_per_page
+
+        return items[start_idx:end_idx]
