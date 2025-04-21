@@ -8,17 +8,18 @@ This project provides an OPDS (Open Publication Distribution System) server that
 
 - **Fetch books & libraries** from the **Audiobookshelf API**
 - **Supports OPDS** for easy integration with reading apps
-- **Simple authentication** using API key
+- **Simple authentication** using Audiobookshelf username and password
+- **Pagination support** for better performance with large libraries
 - **Dockerized** for easy deployment
 - **Lightweight web interface**
 
 ## 🚀 To DO
-  -  **OPDS-PS**
-  -  **Web interface**
-  -  **Auth**
+  -  **Enhanced web interface**
+  -  **Improved Auth**
 
 ## Confirmed Working clients
  - **PocketBook Reader iOS (some heavy PDFs dont work)**
+ - **Moon+ Reader Pro Android**
 
 ## 🛠 Installation & Usage
 
@@ -41,32 +42,58 @@ This will start the OPDS server.
 
 ### 3️⃣ **Access the OPDS feed**
 
-- **OPDS Root:** `http://localhost:8000/opds/<username defined in compose yml>`
+- **OPDS Root:** `http://localhost:8000/opds/`
 - **Web Interface:** `http://localhost:8000/`
 
 You can use an OPDS-compatible reader (e.g., **Calibre, KOReader, Thorium Reader**) to access your books.
 
 ## ⚙ Configuration
 
-You can configure the server using environment variables:
+You can configure the server using environment variables in your docker-compose.yml file:
 
 ```yaml
 services:
   opds:
      environment:
-      - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
-      - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3
+      # User/Group settings for proper file permissions
+      - PUID=1000  # Set to your user's UID
+      - PGID=1000  # Set to your user's GID
 
+      # Connection settings
+      - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
+
+      # Feature toggles
+      - AUTH_ENABLED=true
+      - CACHE_PERSISTENCE_ENABLED=true
+
+      # Performance settings
+      - OPDS_LOG_LEVEL=INFO
+      - ITEMS_PER_PAGE=25  # Set to 0 to disable pagination
 ```
 
-Replace `API_KEY_N` with your **Audiobookshelf API key** if authentication is required. CHange names For John, Jan and guest as you want
+### Configuration Options
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `AUDIOBOOKSHELF_URL` | URL of your Audiobookshelf server | `http://localhost:13378` |
+| `AUTH_ENABLED` | Enable/disable authentication | `true` |
+| `PUID` | User ID for file ownership | `1000` |
+| `PGID` | Group ID for file ownership | `1000` |
+| `ITEMS_PER_PAGE` | Number of items per page, 0 to disable pagination | `25` |
+| `OPDS_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
+| `CACHE_PERSISTENCE_ENABLED` | Enable/disable cache persistence | `true` |
 
 ## 🐳 Running from GitHub Container Registry (GHCR)
 
 You can use the pre-built Docker image:
 
 ```bash
-docker run -d -p 8000:8000 --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378 ghcr.io/petr-prikryl/opds-abs:latest
+docker run -d -p 8000:8000 \
+  --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378 \
+  --env PUID=$(id -u) \
+  --env PGID=$(id -g) \
+  --volume ./data:/app/opds_abs/data \
+  ghcr.io/petr-prikryl/opds-abs:latest
 ```
 
 Or use `docker-compose.yml` directly:
@@ -76,9 +103,28 @@ curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/OPDS-A
 docker-compose up -d
 ```
 
-## 📜 License
+## 📦 Advanced Docker Usage
 
-This project is licensed under the **MIT License**. See `LICENSE` for details.
+### Custom User Permissions
+
+The Docker container supports custom user IDs to ensure proper file ownership when mounting volumes:
+
+```bash
+# Find your user and group IDs
+id -u  # Your user ID (PUID)
+id -g  # Your group ID (PGID)
+```
+
+Update your docker-compose.yml with these values to ensure proper file permissions.
+
+### Pagination
+
+You can control pagination behavior through the `ITEMS_PER_PAGE` environment variable:
+
+- Set a positive number (e.g., 25) to enable pagination with that page size
+- Set to 0 to disable pagination and show all items in a single feed
+
+Pagination helps improve performance and load times when dealing with large libraries.
 
 ## 🙌 Contributing
 

@@ -1,10 +1,20 @@
 version: '3.8'
 services:
   opds:
-    image: ghcr.io/petr-prikryl/opds-abs:latest
+    image: opds-abs:latest
+    container_name: opds-abs
+    restart: unless-stopped
     ports:
       - "8000:8000"
     environment:
+      # User/Group settings
+      - PUID=1000  # Set to your user's UID for proper file permissions
+      - PGID=1000  # Set to your user's GID for proper file permissions
+      # Application settings
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
-      - USERS=John:API_KEY_1,Jan:API_KEY_2,guest:API_KEY_3,chris:API_KEY_4
-      - AUTH_ENABLED=false
+      - AUTH_ENABLED=true
+      - OPDS_LOG_LEVEL=INFO
+      - CACHE_PERSISTENCE_ENABLED=true
+      - ITEMS_PER_PAGE=25  # Set to 0 to show all items without pagination
+    volumes:
+      - ./opds_abs/data:/app/opds_abs/data
