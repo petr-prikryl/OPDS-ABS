@@ -23,8 +23,8 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build . -t ghcr.io/${{ github.repository }}:dev-${{ github.sha }}
+          docker build . -t ghcr.io/petr-prikryl/opds-abs:dev-${{ github.sha }}
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}:dev-${{ github.sha }}
+          docker push ghcr.io/petr-prikryl/opds-abs:dev-${{ github.sha }}
