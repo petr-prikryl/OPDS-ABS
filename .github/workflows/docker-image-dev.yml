@@ -2,9 +2,7 @@ name: Docker Image CI (dev container)
 
 on:
   push:
-    branches: [ "dev" ]
-  pull_request:
-    branches: [ "dev" ]
+    branches: [ "dev", "!master" ]
 
 jobs:
   build-and-push:
@@ -18,7 +16,7 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: petr-prikryl
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Docker image
