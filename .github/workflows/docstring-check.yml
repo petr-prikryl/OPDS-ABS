@@ -2,11 +2,11 @@ name: Docstring Check
 
 on:
   push:
-    branches: [ main, dev ]
+    branches: [ 'master', 'dev' ]
     paths:
       - '**.py'
   pull_request:
-    branches: [ main, dev ]
+    branches: [ 'main', 'dev' ]
     paths:
       - '**.py'
   workflow_dispatch:  # Allows manual triggering
