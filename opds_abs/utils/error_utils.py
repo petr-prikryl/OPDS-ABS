@@ -175,9 +175,9 @@ def handle_exception(
         log_prefix += f" in {context}"
 
     if log_traceback:
-        logger.exception(f"{log_prefix}: {message}")
+        logger.exception("%s: %s", log_prefix, message)
     else:
-        logger.error(f"{log_prefix}: {message}")
+        logger.error("%s: %s", log_prefix, message)
 
     # Create error response
     error_detail = {
@@ -255,6 +255,6 @@ def log_error(
         log_prefix += f" in {context}"
 
     if log_traceback:
-        logger.exception(f"{log_prefix}: {str(exc)}")
+        logger.exception("%s: %s", log_prefix, str(exc))
     else:
-        logger.error(f"{log_prefix}: {str(exc)}")
+        logger.error("Error [%s]: %s", log_prefix, str(exc))

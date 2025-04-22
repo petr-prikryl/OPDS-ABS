@@ -94,7 +94,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 token=token
             )
 
-            logger.info("Filtering cached items by author: %s", author_name)
+            logger.debug("Filtering cached items by author: %s", author_name)
 
             # Use list comprehension for more efficient filtering
             filtered_items = [
@@ -111,7 +111,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 )
             ]
 
-            logger.info("Found %d ebook items by author %s", len(filtered_items), author_name)
+            logger.debug("Found %d ebook items by author %s", len(filtered_items), author_name)
             return filtered_items
 
         except Exception as e:
@@ -158,7 +158,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             library_items.sort(key=lambda item: item.get("media", {}).get("metadata", {}).get("title", "").lower())
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -335,13 +335,14 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 "entry": {
                     "title": {"_text": author_name or "Unknown author name"},
                     "id": {"_text": author_id or "unknown_id"},
+                    "updated": {"_text": self.get_current_timestamp()},
                     "content": {"_text": f"Author with {book_count} ebook{'s' if book_count != 1 else ''}"},
                     "link": [
                         {
                             "_attrs": {
                                 "href": author_url,
                                 "rel": "subsection",
-                                "type": "application/atom+xml"
+                                "type": "application/atom+xml;profile=opds-catalog"
                             }
                         },
                         {
@@ -398,7 +399,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 logger.warning("No authors with ebooks found for library %s", library_id)
                 raise ResourceNotFoundError("No authors with ebooks found")
 
-            logger.info("Found %d authors with ebooks in library %s",
+            logger.debug("Found %d authors with ebooks in library %s",
                        len(authors_list), library_id)
             return authors_list
 
@@ -430,11 +431,11 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         """
         try:
             # Log the request
-            logger.info("Fetching authors feed for user %s library %s (page %d)",
+            logger.debug("Fetching authors feed for user %s library %s (page %d)",
                        username, library_id, page)
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -464,7 +465,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
 
                 # Sort authors by name
                 authors_list = sorted(authors_list, key=lambda x: x.get("name", "").lower())
-                logger.info("Found %d authors with ebooks", len(authors_list))
+                logger.debug("Found %d authors with ebooks", len(authors_list))
 
                 # Calculate pagination values
                 total_authors = len(authors_list)

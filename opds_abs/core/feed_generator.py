@@ -66,7 +66,7 @@ class BaseFeedGenerator:
             }
         )
 
-    def create_base_feed(self, username=None, library_id=None, current_path=None):
+    def create_base_feed(self, username=None, library_id=None, current_path=None, token=None):
         """Create a copy of the base feed with optional search link.
 
         Args:
@@ -78,6 +78,11 @@ class BaseFeedGenerator:
             Element: An lxml Element object representing the base feed structure.
         """
         base_feed = deepcopy(self.base_feed)
+
+        # Add updated timestamp to the feed
+        updated_el = etree.SubElement(base_feed, "updated")
+        updated_el.text = self.get_current_timestamp()
+
         if username and library_id:
             search_link = {
                 "link": {
@@ -91,6 +96,11 @@ class BaseFeedGenerator:
             dict_to_xml(base_feed, search_link)
 
             if current_path:
+                # Base URL parameters
+                # Check if current_path already has parameters
+                separator = "&" if "?" in current_path else "?"
+                auth_param = f"{separator}token={token}" if token else ""
+
                 # Add start link
                 start_link = {
                     "link": {
@@ -98,7 +108,7 @@ class BaseFeedGenerator:
                             "rel": "start",
                             "title": "Start Page",
                             "type": "application/atom+xml;profile=opds-catalog",
-                            "href": f"/opds/{username}/libraries/{library_id}"
+                            "href": f"/opds/{username}/libraries/{library_id}{auth_param}"
                         }
                     }
                 }
@@ -111,7 +121,7 @@ class BaseFeedGenerator:
                             "rel": "self",
                             "title": "This Page",
                             "type": "application/atom+xml;profile=opds-catalog",
-                            "href": f"/opds/{current_path}"
+                            "href": f"/opds/{current_path}{auth_param}"
                         }
                     }
                 }
@@ -124,7 +134,7 @@ class BaseFeedGenerator:
                             "rel": "alternate",
                             "title": "HTML Page",
                             "type": "text/html",
-                            "href": f"/opds/{current_path}"
+                            "href": f"/opds/{current_path}{auth_param}"
                         }
                     }
                 }
@@ -169,57 +179,42 @@ class BaseFeedGenerator:
 
         Raises:
             FeedGenerationError: If there's an error adding the book to the feed.
-
-        Example:
-            ```python
-            # In a feed generator method:
-            async def generate_custom_feed(self, username, library_id, token=None):
-                # Create the base feed
-                feed = self.create_base_feed(username, library_id)
-
-                # Get library items (filtered for ebooks)
-                items = await get_cached_library_items(
-                    fetch_from_api,
-                    self.filter_items,
-                    username,
-                    library_id,
-                    token=token
-                )
-
-                # For each book, get its ebook files and add it to the feed
-                for book in items:
-                    ebook_files = await get_download_urls_from_item(
-                        book.get("id", ""),
-                        username=username,
-                        token=token
-                    )
-
-                    # Add the book to the feed
-                    self.add_book_to_feed(
-                        feed=feed,
-                        book=book,
-                        ebook_inos=ebook_files,
-                        token=token
-                    )
-
-                return self.create_response(feed)
-            ```
         """
+        import logging
+        logger = logging.getLogger(__name__)
+
         try:
+            book_id = book.get("id", "")
             media = book.get("media", {})
+            book_metadata = media.get("metadata", {})
+            book_title = book_metadata.get("title", "Unknown Title")
+            book_author = book_metadata.get("authorName", "Unknown Author")
+
+            # Check if the token was provided in the method call
+            # If not, try to get it from the ebook_inos object
+            effective_token = token
+            if not effective_token and ebook_inos and len(ebook_inos) > 0:
+                # Try to get the token from the first ebook file
+                effective_token = ebook_inos[0].get('token')
+                if effective_token:
+                    logger.debug("Using token from ebook file for book '%s'", book_title)
+
+            # Log detailed information about the book and token
+            logger.debug("Adding book to feed: '%s' (ID: %s), token present: %s", book_title, book_id, effective_token is not None)
+
             # Extract ebook format - check both direct and nested paths (for search results)
             ebook_format = media.get("ebookFormat", media.get("ebookFile", {}).get("ebookFormat"))
+            logger.debug("Book '%s' format: %s", book_title, ebook_format)
 
             for ebook in ebook_inos:
-                book_metadata = media.get("metadata", {})
-                book_path = f"{AUDIOBOOKSHELF_API}/items/{book.get('id','')}"
+                book_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}"
+                file_ino = ebook.get('ino')
 
-                # Use the token for authentication if available
-                auth_param = ""
-                if token:
-                    auth_param = f"?token={token}"
+                # Use our proxy endpoint instead of direct Audiobookshelf API link
+                # No need to append token as query parameter since our proxy handles authentication
+                download_path = f"/opds/proxy/download/{book_id}/file/{file_ino}"
+                logger.debug("Generated proxied download URL for '%s': %s", book_title, download_path)
 
-                download_path = f"{book_path}/file/{ebook.get('ino')}/download{auth_param}"
                 # Cover URL doesn't need authentication
                 cover_url = f"{book_path}/cover?format=jpeg"
                 series_list = book_metadata.get("seriesName", None)
@@ -237,21 +232,23 @@ class BaseFeedGenerator:
                 # Build the entry data structure
                 entry_data = {
                     "entry": {
-                        "title": {"_text": book_metadata.get("title", "Unknown Title")},
-                        "id": {"_text": book.get("id")},
+                        "title": {"_text": book_title},
+                        "id": {"_text": book_id},
+                        "updated": {"_text": self.get_current_timestamp()},
                         "content": {
                             "_attrs": {"type": "xhtml"},
                             "_text": content_text
                         },
                         "author": {
-                            "name": {"_text": book_metadata.get("authorName", "Unknown Author")}
+                            "name": {"_text": book_author}
                         },
                         "link": [
                             {
                                 "_attrs": {
                                     "href": download_path,
                                     "rel": "http://opds-spec.org/acquisition",
-                                    "type": f"application/{ebook_format or 'epub'}+zip"
+                                    "type": f"application/{ebook_format or 'epub'}+zip",
+                                    "title": f"{book_author} - {book_title}"
                                 }
                             },
                             {
@@ -486,3 +483,11 @@ class BaseFeedGenerator:
         end_idx = start_idx + items_per_page
 
         return items[start_idx:end_idx]
+
+    def get_current_timestamp(self):
+        """Get the current timestamp in ISO 8601 format.
+
+        Returns:
+            str: Current timestamp in ISO 8601 format (e.g. 2025-04-21T12:34:56Z)
+        """
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')

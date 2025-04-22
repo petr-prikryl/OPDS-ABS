@@ -71,10 +71,10 @@ class LibraryFeedGenerator(BaseFeedGenerator):
             ```
         """
         # Test log message
-        logger.info(f"Generating root feed for user: {username}")
+        logger.debug("Generating root feed for user: %s", username)
 
         data = await fetch_from_api("/libraries", token=token, username=username)
-        feed = self.create_base_feed()
+        feed = self.create_base_feed(username=username, token=token)
 
         # Add feed title using dictionary approach
         feed_data = {
@@ -99,7 +99,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                             "_attrs": {
                                 "href": f"/opds/{username}/libraries/{library['id']}",
                                 "rel": "subsection",
-                                "type": "application/atom+xml"
+                                "type": "application/atom+xml;profile=opds-catalog"
                             }
                         },
                         {
@@ -239,7 +239,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                         sorted_books = self.paginate_results(sorted_books, start_index, items_per_page)
 
                         # Generate feed using these books directly
-                        feed = self.create_base_feed(username, library_id, current_path_with_page)
+                        feed = self.create_base_feed(username, library_id, current_path_with_page, token)
 
                         # Create feed metadata using dictionary approach
                         feed_data = {
@@ -270,7 +270,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                         return self.create_response(feed)
 
             except Exception as e:
-                logger.error(f"Error processing collection data: {e}")
+                logger.error("Error processing collection data: %s", e)
                 import traceback
                 traceback.print_exc()
 
@@ -286,12 +286,12 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         )
 
         # Log the detected parameters to help with debugging
-        logger.debug(f"Feed params - sort: {sort_param}, desc: {desc_param}, is_special: {is_special_feed}")
+        logger.debug("Feed params - sort: %s, desc: %s, is_special: %s", sort_param, desc_param, is_special_feed)
 
         if is_special_feed:
             # For special feeds like "recent", we can reuse the cached library items
             # instead of making a new API call with different sort parameters
-            logger.info(f"Using cached library items for {sort_param} feed")
+            logger.debug("Using cached library items for %s feed", sort_param)
 
             # Get library items from cache utility
             cached_items = await get_cached_library_items(
@@ -322,7 +322,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
                 )
         else:
             # For feeds with other filters or sorts, use the regular API call
-            logger.info("Fetching library items from API with params: %s", params)
+            logger.debug("Fetching library items from API with params: %s", params)
             data = await fetch_from_api(
                     f"/libraries/{library_id}/items",
                     api_params,
@@ -338,7 +338,7 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         paginated_items = library_items if no_pagination else self.paginate_results(library_items, start_index, items_per_page)
 
         # Create feed with pagination-aware path
-        feed = self.create_base_feed(username, library_id, current_path_with_page)
+        feed = self.create_base_feed(username, library_id, current_path_with_page, token)
 
         # Create feed metadata using dictionary approach
         feed_data = {

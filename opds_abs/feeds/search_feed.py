@@ -119,7 +119,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
             cached_token = get_token_for_username(username)
             if cached_token:
                 token = cached_token
-                logger.debug(f"Retrieved cached token for user {username}")
+                logger.debug("Retrieved cached token for user %s", username)
 
         # Return empty search results if no query provided
         if not query:
@@ -136,7 +136,7 @@ class SearchFeedGenerator(BaseFeedGenerator):
         )
 
         # Create the base feed and add metadata
-        feed = self.create_base_feed()
+        feed = self.create_base_feed(username, library_id, token=token)
         self._add_feed_metadata(feed, library_id, query)
 
         # Process books, series, and authors separately

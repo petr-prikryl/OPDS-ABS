@@ -102,7 +102,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
 
             return None
         except Exception as e:
-            logger.error(f"Error fetching series details: {e}")
+            logger.error("Error fetching series details: %s", e)
             return None
 
     async def filter_items_by_series_id(self, username, library_id, series_id, token=None):
@@ -150,7 +150,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 return filtered_items, series_details
 
             series_name = series_details.get("name", "Unknown Series")
-            logger.info("Found series details for: %s", series_name)
+            logger.debug("Found series details for: %s", series_name)
 
             # Extract book IDs from the series details
             series_book_ids = []
@@ -176,7 +176,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 series_details["authorName"] = most_common_author
                 return filtered_items, series_details
 
-            logger.info("Found %d book IDs in series %s", len(series_book_ids), series_name)
+            logger.debug("Found %d book IDs in series %s", len(series_book_ids), series_name)
 
             # Try to get all library items from cache
             library_items = await get_cached_library_items(
@@ -193,11 +193,11 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 if item.get("id") in series_book_ids:
                     filtered_items.append(item)
 
-            logger.info("Found %d matching items in cache for series %s", len(filtered_items), series_name)
+            logger.debug("Found %d matching items in cache for series %s", len(filtered_items), series_name)
 
             # If no matching items were found in the cache, try the fallback method
             if not filtered_items:
-                logger.warning(f"No matching items found in cache for series %s. Trying API fallback.", series_name)
+                logger.warning("No matching items found in cache for series %s. Trying API fallback.", series_name)
                 params = {"filter": f"series.{self.create_filter(series_id)}"}
                 data = await fetch_from_api(
                         f"/libraries/{library_id}/items",
@@ -219,7 +219,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             # Update series details with author information
             series_details["authorName"] = most_common_author
 
-            logger.info(
+            logger.debug(
                     "Final result: %d items in series %s by %s",
                     len(sorted_items),
                     series_name,
@@ -228,7 +228,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             return sorted_items, series_details
 
         except Exception as e:
-            logger.error(f"Error filtering items by series: %s", e)
+            logger.error("Error filtering items by series: %s", e)
             # Fall back to API call if there was an error
             params = {
                     "filter": f"series.{self.create_filter(series_id)}",
@@ -300,7 +300,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 author_name = series_details.get("authorName", "Unknown Author")
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -331,7 +331,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                 key=lambda x: float(x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0))
             )
 
-            logger.info(f"Sorted {len(sorted_library_items)} items by sequence number for {series_name}")
+            logger.debug("Sorted %d items by sequence number for %s", len(sorted_library_items), series_name)
 
             # Get ebook files for each book
             tasks = []
@@ -419,7 +419,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                         raw_author_name = item.get('media', {}).get('metadata', {}).get('authorName')
                         break
             except Exception as e:
-                logger.error(f"Error checking library items for book ID {first_book_id}: {e}")
+                logger.error("Error checking library items for book ID %s: %s", first_book_id, e)
 
         # Fall back to the first_book_metadata if we couldn't find the book in library items
         if not raw_author_name and first_book_metadata.get("authorName"):
@@ -433,7 +433,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # Format the content based on the source
         if from_search_feed:
                 content_text = f"Series by {raw_author_name}"
-                logger.info("Adding series to feed from search: %s", content_text)
+                logger.debug("Adding series to feed from search: %s", content_text)
 
         # Use the direct series route instead of query parameters
         series_id = series.get('id')
@@ -448,6 +448,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             "entry": {
                 "title": {"_text": series.get("name", "Unknown series name")},
                 "id": {"_text": series_id},
+                "updated": {"_text": self.get_current_timestamp()},
                 "author": {
                     "name": {"_text": raw_author_name}
                 },
@@ -457,7 +458,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
                         "_attrs": {
                             "href": series_link,
                             "rel": "subsection",
-                            "type": "application/atom+xml"
+                            "type": "application/atom+xml;profile=opds-catalog"
                         }
                     },
                     {
@@ -488,7 +489,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         series_params = {"limit": 2000, "sort": "name"}
         data = await fetch_from_api(f"/libraries/{library_id}/series", series_params, username=username, token=token)
 
-        feed = self.create_base_feed(username, library_id)
+        feed = self.create_base_feed(username, library_id, token=token)
 
         # Create feed metadata using dictionary approach
         feed_data = {

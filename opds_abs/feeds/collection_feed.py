@@ -86,11 +86,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 return self.filter_items(data)
 
             collection_name = collection_details.get("name", "Unknown Collection")
-            logger.info("Filtering items by collection: %s", collection_name)
+            logger.debug("Filtering items by collection: %s", collection_name)
 
             # Get the book IDs in this collection - use a set for O(1) lookup
             collection_book_ids = {
-                book.get("id") for book in collection_details.get("books", []) 
+                book.get("id") for book in collection_details.get("books", [])
                 if book.get("id")
             }
 
@@ -109,11 +109,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
 
             # Filter the cached items by matching book IDs - using list comprehension for efficiency
             filtered_items = [
-                item for item in library_items 
+                item for item in library_items
                 if item.get("id") in collection_book_ids
             ]
 
-            logger.info("Found %d items in collection %s from cache",
+            logger.debug("Found %d items in collection %s from cache",
                         len(filtered_items),
                         collection_name
             )
@@ -131,7 +131,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             )
             return self.filter_items(data)
 
-    async def generate_collection_items_feed(self, username, library_id, collection_id, token=None, 
+    async def generate_collection_items_feed(self, username, library_id, collection_id, token=None,
                                              page=1, per_page=20):
         """Generate a feed of items in a specific collection.
 
@@ -147,7 +147,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            logger.info("Generating collection items feed for collection %s (page %d)", 
+            logger.debug("Generating collection items feed for collection %s (page %d)",
                         collection_id, page)
 
             # Get collection details first to get the name
@@ -167,7 +167,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             )
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -187,31 +187,31 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 }
                 dict_to_xml(feed, error_data)
                 return self.create_response(feed)
-                
+
             # Apply pagination
             total_books = len(collection_items)
             total_pages = (total_books + per_page - 1) // per_page  # Ceiling division
-            
+
             # Adjust page number if out of bounds
             if page < 1:
                 page = 1
             elif page > total_pages and total_pages > 0:
                 page = total_pages
-                
+
             # Calculate start and end indices
             start_idx = (page - 1) * per_page
             end_idx = min(start_idx + per_page, total_books)
-            
+
             # Get the subset of books for this page
             paged_items = collection_items[start_idx:end_idx]
-            
+
             # Add pagination links
             self._add_pagination_links(feed, username, library_id, collection_id, page, total_pages, token)
 
             # Get ebook files in optimal batch sizes to avoid overwhelming the server
             BATCH_SIZE = 5  # Adjust based on server capacity
             tasks = []
-            
+
             for book in paged_items:
                 book_id = book.get("id", "")
                 if book_id:
@@ -221,7 +221,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             for i in range(0, len(tasks), BATCH_SIZE):
                 batch_tasks = tasks[i:i+BATCH_SIZE]
                 batch_results = await asyncio.gather(*batch_tasks)
-                
+
                 # Add each book from this batch to the feed
                 for j, ebook_info in enumerate(batch_results):
                     book_index = i + j
@@ -237,11 +237,11 @@ class CollectionFeedGenerator(BaseFeedGenerator):
 
             # Use handle_exception to return a standardized error response
             return handle_exception(e, context=context)
-            
-    def _add_pagination_links(self, feed, username, library_id, collection_id, 
+
+    def _add_pagination_links(self, feed, username, library_id, collection_id,
                               current_page, total_pages, token=None):
         """Add pagination links to the feed.
-        
+
         Args:
             feed: The XML feed object to add links to
             username: The username for URLs
@@ -254,10 +254,10 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         # Base URL for pagination
         base_url = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
         token_param = f"&token={token}" if token else ""
-        
+
         # Add pagination links
         links = []
-        
+
         # First page link
         if current_page > 1:
             links.append({
@@ -267,7 +267,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
-        
+
         # Previous page link
         if current_page > 1:
             links.append({
@@ -277,7 +277,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
-        
+
         # Next page link
         if current_page < total_pages:
             links.append({
@@ -287,7 +287,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
-        
+
         # Last page link
         if current_page < total_pages:
             links.append({
@@ -297,7 +297,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
-        
+
         # Add links to feed
         for link in links:
             dict_to_xml(feed, {"link": link})
@@ -327,7 +327,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 if (book.get("media", {}).get("ebookFile") is not None or
                    (book.get("media", {}).get("ebookFormat") is not None and book.get("media", {}).get("ebookFormat")))
             ]
-            
+
             # Get the book count for the entry content
             book_count = len(books_with_ebooks)
 
@@ -350,13 +350,14 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 "entry": {
                     "title": {"_text": collection_name},
                     "id": {"_text": collection_id},
+                    "updated": {"_text": self.get_current_timestamp()},
                     "content": {"_text": f"Collection with {book_count} ebook{'s' if book_count != 1 else ''}"},
                     "link": [
                         {
                             "_attrs": {
                                 "href": collection_link,
                                 "rel": "subsection",
-                                "type": "application/atom+xml"
+                                "type": "application/atom+xml;profile=opds-catalog"
                             }
                         },
                         {
@@ -394,7 +395,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            logger.info("Generating collections feed for user %s, library %s",
+            logger.debug("Generating collections feed for user %s, library %s",
                         username,
                         library_id
             )
@@ -403,7 +404,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collections = await self.get_collections(username, library_id, token=token)
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -432,7 +433,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                                 ebook_count += 1
 
                         if ebook_count > 0:
-                            logger.info(f"Collection '{collection_data.get('name')}' has {ebook_count} ebooks")
+                            logger.debug("Collection \"%s\" has %d ebooks", collection_data.get('name'), ebook_count)
                             filtered_collections.append(collection_data)
                     except ResourceNotFoundError as e:
                         context = f"Fetching collection {collection_id}"
@@ -468,7 +469,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context, log_traceback=False)
 
             # Return a feed with the specific error
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
             error_data = {
                 "title": {"_text": "Collections not found"},
                 "entry": {
@@ -512,9 +513,9 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collections = collections_data.get("results", [])
 
             if not collections:
-                logger.warning(f"No collections found in library {library_id}")
+                logger.warning("No collections found in library %s", library_id)
             else:
-                logger.info(f"Found {len(collections)} collections in library {library_id}")
+                logger.debug("Found %d collections in library %s", len(collections), library_id)
 
             return collections
 

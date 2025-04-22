@@ -86,10 +86,10 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         """
         try:
             # Log the request
-            logger.info("Generating navigation feed for user %s, library %s", username, library_id)
+            logger.debug("Generating navigation feed for user %s, library %s", username, library_id)
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -97,7 +97,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                 "title": {"_text": f"Navigation for {username}'s library"},
                 "author": {
                     "name": {"_text": "OPDS Audiobookshelf"},
-                    "uri": {"_text": "https://github.com/chrhelming/OPDS-ABS"}
+                    "uri": {"_text": "https://github.com/petr-prikryl/OPDS-ABS"}
                 },
                 "link": [
                     {
@@ -133,6 +133,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                 entry_data = {
                     "entry": {
                         "title": {"_text": nav.get("name", "")},
+                        "updated": {"_text": self.get_current_timestamp()},
                         "content": {
                             "_attrs": {"type": "text"},
                             "_text": nav["desc"]
@@ -142,7 +143,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                                 "_attrs": {
                                     "href": nav_href,
                                     "rel": "subsection",
-                                    "type": "application/atom+xml"
+                                    "type": "application/atom+xml;profile=opds-catalog"
                                 }
                             },
                             {
