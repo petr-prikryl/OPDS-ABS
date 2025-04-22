@@ -96,7 +96,7 @@ def load_cache_from_disk() -> None:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
 
         if not cache_path.exists():
-            logger.info(f"Cache file does not exist at {CACHE_FILE_PATH}, starting with empty cache")
+            logger.info("Cache file does not exist at %s, starting with empty cache", CACHE_FILE_PATH)
             return
 
         with cache_path.open("rb") as f:
@@ -109,10 +109,10 @@ def load_cache_from_disk() -> None:
         valid_items = sum(1 for _, (timestamp, _) in _cache.items()
                           if current_time - timestamp <= DEFAULT_CACHE_EXPIRY)
 
-        logger.info(f"Loaded {len(_cache)} cached items from disk ({valid_items} non-expired)")
+        logger.info("Loaded %d cached items from disk (%d non-expired)", len(_cache), valid_items)
 
     except (pickle.PickleError, IOError, EOFError) as e:
-        logger.warning(f"Failed to load cache from disk: {str(e)}")
+        logger.warning("Failed to load cache from disk: %s", str(e))
         # Start with an empty cache if loading fails
         _cache = {}
 
@@ -168,18 +168,19 @@ def save_cache_to_disk() -> None:
             with _cache_lock:
                 pickle.dump(_cache, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-        logger.debug(f"Saved {len(_cache)} cache items to {CACHE_FILE_PATH}")
+        logger.debug("Saved %d cache items to %s", len(_cache), CACHE_FILE_PATH)
 
     except (pickle.PickleError, IOError) as e:
-        logger.error(f"Failed to save cache to disk: {str(e)}")
+        logger.error("Failed to save cache to disk: %s", str(e))
 
 
-def cache_get(key: str, max_age: int = DEFAULT_CACHE_EXPIRY) -> Optional[Any]:
+def cache_get(key: str, max_age: int = DEFAULT_CACHE_EXPIRY, ignore_expiry: bool = False) -> Optional[Any]:
     """Get an item from the cache if it exists and isn't expired.
 
     Args:
         key: Cache key
         max_age: Maximum age in seconds for cached item
+        ignore_expiry: If True, return the data even if expired (used for fallbacks when server is down)
 
     Returns:
         The cached data or None if not found or expired
@@ -189,8 +190,8 @@ def cache_get(key: str, max_age: int = DEFAULT_CACHE_EXPIRY) -> Optional[Any]:
             return None
 
         timestamp, data = _cache[key]
-        if time.time() - timestamp > max_age:
-            # Cache expired, remove it
+        if not ignore_expiry and time.time() - timestamp > max_age:
+            # Cache expired, remove it unless ignore_expiry is True
             del _cache[key]
             return None
 
@@ -213,7 +214,7 @@ def cache_set(key: str, data: Any) -> None:
         threading.Thread(target=save_cache_to_disk, daemon=True).start()
 
 
-def clear_cache() -> None:
+def clear_cache() -> int:
     """Clear all cached items from memory and disk.
 
     This function removes all entries from the in-memory cache dictionary,
@@ -224,13 +225,17 @@ def clear_cache() -> None:
     The function uses a thread lock to ensure thread safety during the operation.
 
     Returns:
-        None
+        int: The number of items that were cleared from the cache
     """
     with _cache_lock:
+        count = len(_cache)
         _cache.clear()
+        logger.info("Cleared %d items from cache", count)
 
     if CACHE_PERSISTENCE_ENABLED:
         save_cache_to_disk()
+
+    return count
 
 
 def cached(expiry: int = DEFAULT_CACHE_EXPIRY) -> Callable:
@@ -255,11 +260,11 @@ def cached(expiry: int = DEFAULT_CACHE_EXPIRY) -> Callable:
             # Try to get from cache
             cached_data = cache_get(cache_key, expiry)
             if cached_data is not None:
-                logger.debug(f"Cache hit for {func_name}")
+                logger.debug("Cache hit for %s", func_name)
                 return cached_data
 
             # Not in cache, call the function
-            logger.debug(f"Cache miss for {func_name}")
+            logger.debug("Cache miss for %s", func_name)
             data = await func(*args, **kwargs)
 
             # Store in cache
@@ -293,11 +298,11 @@ async def get_cached_library_items(fetch_from_api_func, filter_items_func, usern
     if not bypass_cache:
         cached_data = cache_get(cache_key, LIBRARY_ITEMS_CACHE_EXPIRY)
         if cached_data is not None:
-            logger.debug(f"✓ Cache hit for all library items {library_id}")
+            logger.debug("✓ Cache hit for all library items %s", library_id)
             return cached_data  # Return cached data
 
     # Not in cache or bypassing cache, fetch the data
-    logger.debug(f"Fetching all library items for library {library_id}")
+    logger.debug("Fetching all library items for library %s", library_id)
     items_params = {"limit": 10000, "expand": "media"}
     data = await fetch_from_api_func(f"/libraries/{library_id}/items", items_params, username=username, token=token)
     library_items = filter_items_func(data)
@@ -328,11 +333,11 @@ async def get_cached_search_results(fetch_from_api_func, username, library_id, q
     if not bypass_cache:
         cached_data = cache_get(cache_key, SEARCH_RESULTS_CACHE_EXPIRY)
         if cached_data is not None:
-            logger.debug(f"✓ Cache hit for search query: {query}")
+            logger.debug("✓ Cache hit for search query: %s", query)
             return cached_data
 
     # Not in cache or bypassing cache, perform the search
-    logger.debug(f"Performing search for query: {query}")
+    logger.debug("Performing search for query: %s", query)
     search_params = {"limit": 2000, "q": query}
     search_data = await fetch_from_api_func(f"/libraries/{library_id}/search", search_params, username=username, token=token)
 
@@ -364,11 +369,11 @@ async def get_cached_series_details(fetch_from_api_func, username, library_id, s
     # Try to get from cache first
     cached_data = cache_get(cache_key, SERIES_DETAILS_CACHE_EXPIRY)
     if cached_data is not None:
-        logger.debug(f"✓ Cache hit for series details {series_id}")
+        logger.debug("✓ Cache hit for series details %s", series_id)
         return cached_data
 
     # Not in cache, fetch the series data
-    logger.debug(f"Fetching series details for series {series_id}")
+    logger.debug("Fetching series details for series %s", series_id)
 
     # Get all series to find the one with the matching ID
     try:
@@ -388,7 +393,7 @@ async def get_cached_series_details(fetch_from_api_func, username, library_id, s
 
         return series_details
     except Exception as e:
-        logger.error(f"Error fetching series details: {e}")
+        logger.error("Error fetching series details: %s", e)
         return None
 
 
@@ -413,7 +418,7 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
     if not bypass_cache:
         cached_data = cache_get(cache_key, AUTHORS_CACHE_EXPIRY)
         if cached_data is not None:
-            logger.debug(f"✓ Cache hit for authors with ebooks in library {library_id}")
+            logger.debug("✓ Cache hit for authors with ebooks in library %s", library_id)
             return cached_data
 
     # Use cached library items instead of fetching directly
@@ -426,7 +431,7 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
     )
 
     if not library_items:
-        logger.debug(f"No library items found for library {library_id}")
+        logger.debug("No library items found for library %s", library_id)
         return []
 
     # First collect basic author info from items
@@ -481,7 +486,7 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
     # Cache the result for future use
     cache_set(cache_key, authors_list)
 
-    logger.debug(f"Found {len(authors_list)} authors with ebooks in library {library_id}")
+    logger.debug("Found %d authors with ebooks in library %s", len(authors_list), library_id)
     return authors_list
 
 
@@ -509,11 +514,11 @@ async def get_cached_series_items(fetch_from_api_func, filter_items_func, userna
     if not bypass_cache:
         cached_data = cache_get(cache_key, SERIES_ITEMS_CACHE_EXPIRY)
         if cached_data is not None:
-            logger.debug(f"✓ Cache hit for series items {series_id}")
+            logger.debug("✓ Cache hit for series items %s", series_id)
             return cached_data
 
     # Not in cache or bypassing cache, query the items endpoint with series filter
-    logger.debug(f"Fetching items for series {series_id} using direct items query")
+    logger.debug("Fetching items for series %s using direct items query", series_id)
 
     # Create base64 encoded filter for the series ID
     base64_series_id = base64.b64encode(series_id.encode()).decode()
@@ -533,5 +538,5 @@ async def get_cached_series_items(fetch_from_api_func, filter_items_func, userna
     # Store in cache for future use
     cache_set(cache_key, filtered_items)
 
-    logger.debug(f"Found {len(filtered_items)} items for series {series_id}")
+    logger.debug("Found %d items for series %s", len(filtered_items), series_id)
     return filtered_items

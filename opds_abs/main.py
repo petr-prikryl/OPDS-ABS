@@ -50,13 +50,13 @@ from contextlib import asynccontextmanager
 
 # Third-party imports
 from fastapi import FastAPI, Request, HTTPException, Depends
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.exception_handlers import http_exception_handler
 
 # Local application imports
-from opds_abs.config import LOG_LEVEL, AUTH_ENABLED, CACHE_PERSISTENCE_ENABLED
+from opds_abs.config import LOG_LEVEL, AUTH_ENABLED, CACHE_PERSISTENCE_ENABLED, AUDIOBOOKSHELF_API
 from opds_abs.feeds.library_feed import LibraryFeedGenerator
 from opds_abs.feeds.navigation_feed import NavigationFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
@@ -72,7 +72,9 @@ from opds_abs.utils.error_utils import (
     CacheError,
     handle_exception,
     convert_to_http_exception,
-    log_error
+    log_error,
+    APIClientError,
+    AuthenticationError
 )
 
 # Define custom formatter to match uvicorn's style exactly
@@ -192,6 +194,146 @@ async def opds_exception_handler(request: Request, exc: OPDSBaseException):
     context = f"{request.method} {request.url.path}"
     return handle_exception(exc, context=context)
 
+# Custom exception handler for API connectivity errors
+@app.exception_handler(APIClientError)
+async def api_client_error_handler(request: Request, exc: APIClientError):
+    """Handle API connectivity errors gracefully with OPDS-compliant XML error format.
+
+    This exception handler is specifically designed to handle connection errors
+    to the Audiobookshelf API in a user-friendly way that's compatible with OPDS clients.
+
+    Args:
+        request (Request): The request that caused the exception
+        exc (APIClientError): The exception that was raised
+
+    Returns:
+        Response: OPDS-compliant XML error response
+    """
+    # For connection errors, no need to log the full traceback again
+    # since it was already logged when the exception was raised
+    error_id = id(exc)
+    logger.warning("API connection error [%s]: %s", error_id, str(exc))
+
+    # Get the context from the request path
+    context = f"{request.method} {request.url.path}"
+
+    # Extract the username and library_id from the request path if possible
+    path_parts = request.url.path.split('/')
+    username = None
+    library_id = None
+
+    for i, part in enumerate(path_parts):
+        if part == "opds" and i+1 < len(path_parts):
+            username = path_parts[i+1]
+        if part == "libraries" and i+1 < len(path_parts):
+            library_id = path_parts[i+1]
+
+    # Create a more specific context if we have the username and library_id
+    if username and library_id:
+        context = f"Generating items feed for user {username}, library {library_id}"
+
+    # Create OPDS-compliant XML error response
+    xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<error xmlns="http://opds-spec.org/2010/catalog">
+  <id>{error_id}</id>
+  <message>{str(exc)}</message>
+  <context>{context}</context>
+</error>"""
+
+    # Return the XML response with proper content type
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        status_code=503  # Service Unavailable
+    )
+
+# Custom exception handler for authentication errors
+@app.exception_handler(AuthenticationError)
+async def authentication_error_handler(request: Request, exc: AuthenticationError):
+    """Handle authentication errors with OPDS-compliant XML error format.
+
+    Args:
+        request (Request): The request that caused the exception
+        exc (AuthenticationError): The authentication error that was raised
+
+    Returns:
+        Response: OPDS-compliant XML error response
+    """
+    # Log authentication errors without traceback
+    error_id = id(exc)
+    logger.warning("Authentication error [%s]: %s", error_id, str(exc))
+
+    # Get the context from the request path
+    context = f"{request.method} {request.url.path}"
+
+    # Extract the username and library_id from the request path if possible
+    path_parts = request.url.path.split('/')
+    username = None
+    library_id = None
+
+    for i, part in enumerate(path_parts):
+        if part == "opds" and i+1 < len(path_parts):
+            username = path_parts[i+1]
+        if part == "libraries" and i+1 < len(path_parts):
+            library_id = path_parts[i+1]
+
+    # Create a more specific context if we have the username and library_id
+    if username and library_id:
+        context = f"Authentication for user {username}, library {library_id}"
+    elif username:
+        context = f"Authentication for user {username}"
+
+    # Create OPDS-compliant XML error response
+    xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<error xmlns="http://opds-spec.org/2010/catalog">
+  <id>{error_id}</id>
+  <message>{str(exc)}</message>
+  <context>{context}</context>
+</error>"""
+
+    # Return the XML response with proper content type and WWW-Authenticate header
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        status_code=401,
+        headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
+    )
+
+# Custom exception handler for 503 Service Unavailable errors
+@app.exception_handler(503)
+async def service_unavailable_handler(request: Request, exc: HTTPException):
+    """Handle Service Unavailable errors with OPDS-compliant XML format.
+
+    This is specifically for when the Audiobookshelf server is unavailable.
+
+    Args:
+        request (Request): The request that caused the exception
+        exc (HTTPException): The HTTP exception with status code 503
+
+    Returns:
+        Response: OPDS-compliant XML error response
+    """
+    error_id = id(exc)
+    logger.warning("Service unavailable [%s]: %s", error_id, str(exc.detail))
+
+    # Get the context from the request path
+    context = f"{request.method} {request.url.path}"
+
+    # Create OPDS-compliant XML error response
+    xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+<error xmlns="http://opds-spec.org/2010/catalog">
+  <id>{error_id}</id>
+  <message>Audiobookshelf server is unavailable: {exc.detail}</message>
+  <context>{context}</context>
+</error>"""
+
+    # Return the XML response with proper content type
+    return Response(
+        content=xml_content,
+        media_type="application/xml",
+        status_code=503  # Service Unavailable
+    )
+
 # Fall back to standard HTTPException handling for other exceptions
 @app.exception_handler(HTTPException)
 async def custom_http_exception_handler(request: Request, exc: HTTPException):
@@ -234,7 +376,7 @@ async def opds_root_redirect(
     """Redirect to the authenticated user's OPDS root.
 
     Args:
-        request (Request): The incoming request object.
+        request (Request): The incoming request.
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
@@ -243,12 +385,17 @@ async def opds_root_redirect(
     username, token, display_name = auth_info
 
     if not username:
-        # If not authenticated, return a 401 with WWW-Authenticate header
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication required",
-            headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
-        )
+        # Check if authentication was disabled or failed because server is unavailable
+        if not AUTH_ENABLED:
+            # Authentication is disabled, so use a default username
+            return RedirectResponse(url=f"/opds/anonymous")
+        else:
+            # If not authenticated, return a 401 with WWW-Authenticate header
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required",
+                headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
+            )
 
     # Redirect to the user's OPDS root
     return RedirectResponse(url=f"/opds/{display_name}")
@@ -463,7 +610,7 @@ async def opds_library(
 
         # Log pagination parameters for debugging
         if 'start_index' in params:
-            logger.debug(f"Pagination requested with start_index: {params['start_index']}")
+            logger.debug("Pagination requested with start_index: %s", params['start_index'])
 
         return await library_feed.generate_library_items_feed(
             effective_username,
@@ -788,8 +935,8 @@ async def clear_all_cache(auth_info: tuple = Depends(require_auth)):
         JSONResponse: A message indicating how many items were cleared from the cache.
     """
     try:
-        count = len(_cache)
-        clear_cache()
+        # Use the count returned by clear_cache() instead of checking beforehand
+        count = clear_cache()
         return JSONResponse(content={"message": f"Cleared {count} items from cache"})
     except Exception as e:
         log_error(e, context="Clearing cache")
@@ -829,3 +976,110 @@ async def invalidate_specific_cache(
     except Exception as e:
         log_error(e, context=f"Invalidating cache for {endpoint}")
         raise CacheError(f"Failed to invalidate cache for {endpoint}") from e
+
+
+@app.get("/opds/proxy/download/{item_id}/file/{file_ino}")
+async def proxy_download(
+    item_id: str,
+    file_ino: str,
+    request: Request,
+    auth_info: tuple = Depends(get_authenticated_user)
+):
+    """Proxy file downloads from Audiobookshelf to handle authentication properly.
+
+    This solves the authentication issue when clicking download links by:
+    1. Receiving the download request from the OPDS client
+    2. Adding proper authentication to the upstream request to Audiobookshelf
+    3. Streaming the file content back to the client
+
+    Args:
+        item_id: The ID of the item to download
+        file_ino: The inode number of the file to download
+        request: The FastAPI request object
+        auth_info: The authentication info tuple
+
+    Returns:
+        StreamingResponse: The file content stream
+    """
+    from fastapi.responses import StreamingResponse
+    import aiohttp
+
+    username, token, display_name = auth_info
+
+    if not token:
+        # Log at debug level instead of error since this is expected behavior
+        # for OPDS clients which try without auth first
+        logger.debug("Authentication challenge for download of item %s", item_id)
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required for downloads",
+            headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
+        )
+
+    logger.debug("Proxying download for item %s, file %s", item_id, file_ino)
+
+    # Construct the URL for the file download on the Audiobookshelf API
+    url = f"{AUDIOBOOKSHELF_API}/items/{item_id}/file/{file_ino}/download"
+
+    # Set up proper authentication headers
+    headers = {"Authorization": f"Bearer {token}"}
+    logger.debug("Making authenticated request to %s", url)
+
+    async def stream_file():
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.get(url, headers=headers) as response:
+                    response.raise_for_status()
+                    logger.debug("Received successful response from Audiobookshelf API with status %s", response.status)
+
+                    # Stream the response content
+                    async for chunk in response.content.iter_any():
+                        yield chunk
+
+            except aiohttp.ClientResponseError as e:
+                logger.error("Error proxying download: %s - %s", e.status, str(e))
+                # Re-raise as HTTPException with appropriate status
+                raise HTTPException(status_code=e.status, detail=f"Error fetching file: {str(e)}")
+            except Exception as e:
+                logger.error("Unexpected error proxying download: %s", str(e))
+                raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
+
+    try:
+        # Make a HEAD request first to get content headers without downloading the file
+        response_headers = {}
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.head(url, headers=headers) as head_response:
+                    head_response.raise_for_status()
+
+                    # Get content type for proper MIME type handling
+                    content_type = head_response.headers.get("Content-Type", "application/octet-stream")
+
+                    # Set the same headers we received from Audiobookshelf
+                    for header_name, header_value in head_response.headers.items():
+                        if header_name.lower() in ("content-type", "content-disposition", "content-length"):
+                            response_headers[header_name] = header_value
+
+                    logger.debug("Proxying download with content type: %s", content_type)
+
+                    # Make sure we have a content-disposition header for proper filename
+                    if "content-disposition" not in {k.lower(): v for k, v in response_headers.items()}:
+                        filename = f"book-{item_id}.epub"
+                        response_headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+
+            except Exception as e:
+                logger.warning("Error making HEAD request, continuing without headers: %s", str(e))
+                # If HEAD request fails, we'll continue without the headers
+                content_type = "application/octet-stream"
+                response_headers = {}
+
+        # Return a streaming response with the file content and appropriate headers
+        return StreamingResponse(
+            stream_file(),
+            media_type=content_type,
+            headers=response_headers
+        )
+
+    except Exception as e:
+        logger.error("Error setting up download proxy: %s", str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to set up download: {str(e)}")

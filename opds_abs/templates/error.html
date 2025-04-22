@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang='en'>
+<head>
+    <meta charset='UTF-8'>
+    <title>{{ title }}</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        .error-container {
+            background-color: #f9f9f9;
+            border-left: 4px solid #e53935;
+            padding: 1rem 1.5rem;
+            border-radius: 4px;
+            margin: 2rem 0;
+        }
+        h1 {
+            color: #e53935;
+            margin-top: 0;
+        }
+        .message {
+            margin-bottom: 1.5rem;
+        }
+        .suggestions {
+            background-color: #e8f5e9;
+            padding: 1rem;
+            border-radius: 4px;
+        }
+        .suggestions h3 {
+            margin-top: 0;
+            color: #2e7d32;
+        }
+        .suggestions ul {
+            margin-bottom: 0;
+        }
+        .try-again {
+            display: inline-block;
+            background-color: #2196f3;
+            color: white;
+            padding: 0.5rem 1rem;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 1.5rem;
+            font-weight: 500;
+        }
+        .try-again:hover {
+            background-color: #1976d2;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <h1>{{ title }}</h1>
+        <div class="message">{{ message }}</div>
+
+        <div class="suggestions">
+            <h3>Troubleshooting Steps</h3>
+            <ul>
+                <li>Make sure your Audiobookshelf server is running</li>
+                <li>Verify the API URL in your configuration is correct: <code>{{ api_url }}</code></li>
+                <li>Check if your Audiobookshelf server is accessible from this machine</li>
+                <li>Check if Audiobookshelf requires authentication</li>
+            </ul>
+        </div>
+
+        <a href="/" class="try-again">Try Again</a>
+    </div>
+</body>
+</html>

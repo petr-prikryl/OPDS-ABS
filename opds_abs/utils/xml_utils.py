@@ -24,7 +24,7 @@ def dict_to_xml(parent_element, data: Dict[str, Any]) -> None:
                 "name": {"_text": "Author Name"}
             },
             "link": [
-                {"_attrs": {"href": "/path1", "rel": "subsection", "type": "application/atom+xml"}},
+                {"_attrs": {"href": "/path1", "rel": "subsection", "type": "application/atom+xml;profile=opds-catalog"}},
                 {"_attrs": {"href": "/path2", "rel": "image", "type": "image/jpeg"}}
             ]
         }

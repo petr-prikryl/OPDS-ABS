@@ -86,7 +86,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 return self.filter_items(data)
 
             collection_name = collection_details.get("name", "Unknown Collection")
-            logger.info("Filtering items by collection: %s", collection_name)
+            logger.debug("Filtering items by collection: %s", collection_name)
 
             # Get the book IDs in this collection - use a set for O(1) lookup
             collection_book_ids = {
@@ -113,7 +113,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                 if item.get("id") in collection_book_ids
             ]
 
-            logger.info("Found %d items in collection %s from cache",
+            logger.debug("Found %d items in collection %s from cache",
                         len(filtered_items),
                         collection_name
             )
@@ -147,7 +147,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            logger.info("Generating collection items feed for collection %s (page %d)",
+            logger.debug("Generating collection items feed for collection %s (page %d)",
                         collection_id, page)
 
             # Get collection details first to get the name
@@ -167,7 +167,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             )
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -357,7 +357,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                             "_attrs": {
                                 "href": collection_link,
                                 "rel": "subsection",
-                                "type": "application/atom+xml"
+                                "type": "application/atom+xml;profile=opds-catalog"
                             }
                         },
                         {
@@ -395,7 +395,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             Response: A FastAPI response object containing the XML feed.
         """
         try:
-            logger.info("Generating collections feed for user %s, library %s",
+            logger.debug("Generating collections feed for user %s, library %s",
                         username,
                         library_id
             )
@@ -404,7 +404,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collections = await self.get_collections(username, library_id, token=token)
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -433,7 +433,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                                 ebook_count += 1
 
                         if ebook_count > 0:
-                            logger.info(f"Collection '{collection_data.get('name')}' has {ebook_count} ebooks")
+                            logger.debug("Collection \"%s\" has %d ebooks", collection_data.get('name'), ebook_count)
                             filtered_collections.append(collection_data)
                     except ResourceNotFoundError as e:
                         context = f"Fetching collection {collection_id}"
@@ -469,7 +469,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             log_error(e, context=context, log_traceback=False)
 
             # Return a feed with the specific error
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
             error_data = {
                 "title": {"_text": "Collections not found"},
                 "entry": {
@@ -513,9 +513,9 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             collections = collections_data.get("results", [])
 
             if not collections:
-                logger.warning(f"No collections found in library {library_id}")
+                logger.warning("No collections found in library %s", library_id)
             else:
-                logger.info(f"Found {len(collections)} collections in library {library_id}")
+                logger.debug("Found %d collections in library %s", len(collections), library_id)
 
             return collections
 

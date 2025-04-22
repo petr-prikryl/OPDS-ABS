@@ -86,10 +86,10 @@ class NavigationFeedGenerator(BaseFeedGenerator):
         """
         try:
             # Log the request
-            logger.info("Generating navigation feed for user %s, library %s", username, library_id)
+            logger.debug("Generating navigation feed for user %s, library %s", username, library_id)
 
             # Create the feed
-            feed = self.create_base_feed(username, library_id)
+            feed = self.create_base_feed(username, library_id, token=token)
 
             # Build the feed metadata
             feed_data = {
@@ -143,7 +143,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                                 "_attrs": {
                                     "href": nav_href,
                                     "rel": "subsection",
-                                    "type": "application/atom+xml"
+                                    "type": "application/atom+xml;profile=opds-catalog"
                                 }
                             },
                             {

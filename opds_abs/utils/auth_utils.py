@@ -66,41 +66,49 @@ async def authenticate_with_audiobookshelf(username: str, password: str) -> Tupl
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(
-                login_url,
-                json={"username": username, "password": password},
-                headers={"Content-Type": "application/json"},
-                timeout=10
-            ) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    logger.warning(f"Authentication failed for user {username}: {error_text}")
-                    raise AuthenticationError(f"Authentication failed: {response.status}")
+            try:
+                async with session.post(
+                    login_url,
+                    json={"username": username, "password": password},
+                    headers={"Content-Type": "application/json"},
+                    timeout=5  # Shortened timeout for faster detection of server issues
+                ) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.warning("Authentication failed for user %s: %s", username, error_text)
+                        raise AuthenticationError(f"Authentication failed: {response.status}")
 
-                data = await response.json()
+                    data = await response.json()
 
-                if not data or "user" not in data:
-                    raise AuthenticationError("Invalid response from Audiobookshelf")
+                    if not data or "user" not in data:
+                        raise AuthenticationError("Invalid response from Audiobookshelf")
 
-                user_data = data.get("user", {})
-                token = user_data.get("token")
-                display_name = user_data.get("username", username)
+                    user_data = data.get("user", {})
+                    token = user_data.get("token")
+                    display_name = user_data.get("username", username)
 
-                if not token:
-                    raise AuthenticationError("No token returned from Audiobookshelf")
+                    if not token:
+                        raise AuthenticationError("No token returned from Audiobookshelf")
 
-                # Cache the token with the username
-                TOKEN_CACHE[username] = (token, display_name)
+                    # Cache the token with the username
+                    TOKEN_CACHE[username] = (token, display_name)
 
-                return token, display_name
-
-    except aiohttp.ClientError as e:
-        context = f"Authenticating with Audiobookshelf at {login_url}"
-        log_error(e, context=context)
-        raise AuthenticationError(f"Error connecting to Audiobookshelf: {str(e)}") from e
+                    return token, display_name
+            except aiohttp.ClientConnectorError as conn_error:
+                # Handle connection errors gracefully without traceback
+                error_id = id(conn_error)
+                logger.error("ERROR [%s]: Cannot connect to Audiobookshelf server at %s", error_id, AUDIOBOOKSHELF_URL)
+                raise AuthenticationError(
+                    f"Error connecting to Audiobookshelf: Cannot connect to host {AUDIOBOOKSHELF_URL.split('//')[1]}"
+                ) from None  # Use "from None" to suppress the traceback
+            except aiohttp.ClientError as client_error:
+                # For other client errors, provide a cleaner error message
+                logger.error("Authentication error for %s: %s", username, str(client_error))
+                raise AuthenticationError(f"Error connecting to Audiobookshelf: {str(client_error)}") from None
+    except AuthenticationError:
+        # Re-raise authentication errors without modification
+        raise
     except Exception as e:
-        if isinstance(e, AuthenticationError):
-            raise
         context = f"Processing authentication response from Audiobookshelf"
         log_error(e, context=context)
         raise AuthenticationError(f"Authentication error: {str(e)}") from e
@@ -127,7 +135,7 @@ def get_credentials_from_request(request: Request) -> Tuple[Optional[str], Optio
         username, password = decoded.split(":", 1)
         return username, password
     except Exception as e:
-        logger.warning(f"Invalid authorization header: {e}")
+        logger.warning("Invalid authorization header: %s", e)
         return None, None
 
 async def get_user_token(username: str, password: str) -> Tuple[str, str]:
@@ -145,7 +153,7 @@ async def get_user_token(username: str, password: str) -> Tuple[str, str]:
     """
     # First check in-memory cache
     if username in TOKEN_CACHE:
-        logger.debug(f"Using cached token for user {username}")
+        logger.debug("Using cached token for user %s", username)
         return TOKEN_CACHE[username]
 
     # Not in memory cache, check persistent cache
@@ -153,13 +161,13 @@ async def get_user_token(username: str, password: str) -> Tuple[str, str]:
     cached_data = cache_get(cache_key, AUTH_CACHE_EXPIRY)
 
     if cached_data is not None:
-        logger.debug(f"✓ Cache hit for auth token: {username}")
+        logger.debug("✓ Cache hit for auth token: %s", username)
         # Update the in-memory cache too
         TOKEN_CACHE[username] = cached_data
         return cached_data
 
     # Not in any cache, authenticate with Audiobookshelf
-    logger.debug(f"Not in cache, authenticating user {username}")
+    logger.debug("Not in cache, authenticating user %s", username)
     token, display_name = await authenticate_with_audiobookshelf(username, password)
 
     # Store in persistent cache
@@ -197,25 +205,39 @@ async def get_authenticated_user(request: Request) -> Tuple[Optional[str], Optio
     """Create a FastAPI dependency to get the authenticated user.
 
     Args:
-        request: The FastAPI request object
+        request (Request): The FastAPI request object
 
     Returns:
         Tuple of (username, token, display_name) or (None, None, None) if no credentials
 
     Raises:
-        HTTPException: If authentication fails
+        HTTPException: If authentication fails or server is unavailable
     """
     try:
         # Get credentials and token using Basic Auth
         username, token, display_name = await verify_credentials(request)
         return username, token, display_name
     except AuthenticationError as e:
-        # Convert to HTTPException with WWW-Authenticate header
-        raise HTTPException(
-            status_code=401,
-            detail=str(e),
-            headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
-        )
+        # Check if this is a server connection issue
+        if "Cannot connect" in str(e) or "not responding" in str(e) or "connecting to Audiobookshelf" in str(e):
+            # Server unavailable - raise a 503 Service Unavailable instead of 401
+            error_id = id(e)
+            error_message = f"Audiobookshelf server is unavailable: {str(e)}"
+            logger.error("Server unavailable [%s]: %s", error_id, error_message)
+
+            # Instead of returning a Response object directly (which would break the dependency),
+            # raise an HTTPException with 503 status code
+            raise HTTPException(
+                status_code=503,  # Service Unavailable
+                detail=error_message
+            )
+        else:
+            # Regular authentication failure - return a 401 with WWW-Authenticate header
+            raise HTTPException(
+                status_code=401,
+                detail=str(e),
+                headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""}
+            )
 
 async def require_auth(request: Request) -> Tuple[str, str, str]:
     """Create a FastAPI dependency to require authentication.
