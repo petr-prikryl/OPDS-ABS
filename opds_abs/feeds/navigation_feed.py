@@ -97,7 +97,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                 "title": {"_text": f"Navigation for {username}'s library"},
                 "author": {
                     "name": {"_text": "OPDS Audiobookshelf"},
-                    "uri": {"_text": "https://github.com/chrhelming/OPDS-ABS"}
+                    "uri": {"_text": "https://github.com/petr-prikryl/OPDS-ABS"}
                 },
                 "link": [
                     {
