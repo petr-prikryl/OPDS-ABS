@@ -78,6 +78,11 @@ class BaseFeedGenerator:
             Element: An lxml Element object representing the base feed structure.
         """
         base_feed = deepcopy(self.base_feed)
+
+        # Add updated timestamp to the feed
+        updated_el = etree.SubElement(base_feed, "updated")
+        updated_el.text = self.get_current_timestamp()
+
         if username and library_id:
             search_link = {
                 "link": {
@@ -239,6 +244,7 @@ class BaseFeedGenerator:
                     "entry": {
                         "title": {"_text": book_metadata.get("title", "Unknown Title")},
                         "id": {"_text": book.get("id")},
+                        "updated": {"_text": self.get_current_timestamp()},
                         "content": {
                             "_attrs": {"type": "xhtml"},
                             "_text": content_text
@@ -486,3 +492,11 @@ class BaseFeedGenerator:
         end_idx = start_idx + items_per_page
 
         return items[start_idx:end_idx]
+
+    def get_current_timestamp(self):
+        """Get the current timestamp in ISO 8601 format.
+
+        Returns:
+            str: Current timestamp in ISO 8601 format (e.g. 2025-04-21T12:34:56Z)
+        """
+        return datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')

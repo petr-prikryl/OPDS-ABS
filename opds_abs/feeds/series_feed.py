@@ -448,6 +448,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             "entry": {
                 "title": {"_text": series.get("name", "Unknown series name")},
                 "id": {"_text": series_id},
+                "updated": {"_text": self.get_current_timestamp()},
                 "author": {
                     "name": {"_text": raw_author_name}
                 },

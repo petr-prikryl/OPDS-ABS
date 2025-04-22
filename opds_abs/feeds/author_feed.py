@@ -335,6 +335,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 "entry": {
                     "title": {"_text": author_name or "Unknown author name"},
                     "id": {"_text": author_id or "unknown_id"},
+                    "updated": {"_text": self.get_current_timestamp()},
                     "content": {"_text": f"Author with {book_count} ebook{'s' if book_count != 1 else ''}"},
                     "link": [
                         {

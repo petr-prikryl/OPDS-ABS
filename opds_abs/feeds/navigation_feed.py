@@ -133,6 +133,7 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                 entry_data = {
                     "entry": {
                         "title": {"_text": nav.get("name", "")},
+                        "updated": {"_text": self.get_current_timestamp()},
                         "content": {
                             "_attrs": {"type": "text"},
                             "_text": nav["desc"]
