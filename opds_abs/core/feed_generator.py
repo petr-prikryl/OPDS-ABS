@@ -229,6 +229,11 @@ class BaseFeedGenerator:
                     f"Added at: {added_at}<br/>"
                 )
 
+                if ebook_format == "pdf":
+                    ebook_link_type = ebook_format
+                else:
+                    ebook_link_type = f"{ebook_format}+zip"
+
                 # Build the entry data structure
                 entry_data = {
                     "entry": {
@@ -247,7 +252,7 @@ class BaseFeedGenerator:
                                 "_attrs": {
                                     "href": download_path,
                                     "rel": "http://opds-spec.org/acquisition",
-                                    "type": f"application/{ebook_format or 'epub'}+zip",
+                                    "type": f"application/{ebook_link_type}",
                                     "title": f"{book_author} - {book_title}"
                                 }
                             },
