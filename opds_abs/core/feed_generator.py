@@ -13,6 +13,24 @@ from opds_abs.config import AUDIOBOOKSHELF_API
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.error_utils import FeedGenerationError, log_error
 
+# Mapping of ebook formats to correct MIME types for OPDS
+FORMAT_TO_MIMETYPE = {
+    "epub": "application/epub+zip",
+    "pdf":  "application/pdf",
+    "mobi": "application/x-mobipocket-ebook",
+    "azw3": "application/vnd.amazon.ebook",
+    "cbz":  "application/x-cbz",
+    "cbr":  "application/x-cbr",
+    "fb2":  "application/x-fictionbook+xml",
+    "fbz":  "application/x-fictionbook+zip",
+    "txt":  "text/plain",
+    "html": "text/html",
+    "htm":  "text/html",
+    "md":   "text/markdown",
+    "cbt":  "application/x-cbt",
+    "cb7":  "application/x-cb7",
+}
+
 class BaseFeedGenerator:
     """Base class for creating OPDS feed components.
 
@@ -229,10 +247,10 @@ class BaseFeedGenerator:
                     f"Added at: {added_at}<br/>"
                 )
 
-                if ebook_format == "pdf":
-                    ebook_link_type = ebook_format
-                else:
-                    ebook_link_type = f"{ebook_format}+zip"
+                # Set the correct MIME type based on the format
+                # Default to epub if the format is unknown
+                format_lower = ebook_format.lower() if ebook_format else "epub"
+                mime_type = FORMAT_TO_MIMETYPE.get(format_lower, "application/epub+zip")
 
                 # Build the entry data structure
                 entry_data = {
@@ -252,7 +270,7 @@ class BaseFeedGenerator:
                                 "_attrs": {
                                     "href": download_path,
                                     "rel": "http://opds-spec.org/acquisition",
-                                    "type": f"application/{ebook_link_type}",
+                                    "type": mime_type,
                                     "title": f"{book_author} - {book_title}"
                                 }
                             },
