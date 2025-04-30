@@ -18,7 +18,8 @@ This project provides an OPDS (Open Publication Distribution System) server that
   -  **Improved Auth**
 
 ## Confirmed Working clients
- - **PocketBook Reader iOS (some heavy PDFs dont work)**
+ - **PocketBook Reader iOS and Android**
+ - **KOreader**
  - **Moon+ Reader Pro Android**
 
 ## 🛠 Installation & Usage
