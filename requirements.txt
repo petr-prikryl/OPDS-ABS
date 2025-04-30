@@ -1,3 +1,6 @@
+aiohttp
+asyncio
 fastapi
+jinja2
 uvicorn
-requests
+lxml
