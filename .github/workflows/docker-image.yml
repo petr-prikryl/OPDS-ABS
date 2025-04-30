@@ -22,10 +22,9 @@ jobs:
           password: ${{ secrets.CR_PAT }}
 
       - name: Build Docker image
-  run: |
-    docker build . -t ghcr.io/${{ github.repository_owner }}/opds-abs:latest
+        run: |
+          docker build . -t ghcr.io/${{ github.repository_owner }}/opds-abs:latest
 
-- name: Push Docker image
-  run: |
-    docker push ghcr.io/${{ github.repository_owner }}/opds-abs:latest
-
+      - name: Push Docker image
+        run: |
+          docker push ghcr.io/${{ github.repository_owner }}/opds-abs:latest
