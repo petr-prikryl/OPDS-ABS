@@ -13,8 +13,10 @@ services:
       # Application settings
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
       - AUTH_ENABLED=true
+      - API_KEY_AUTH_ENABLED=true
       - OPDS_LOG_LEVEL=INFO
       - CACHE_PERSISTENCE_ENABLED=true
-      - ITEMS_PER_PAGE=25  # Set to 0 to show all items without pagination
+      - PAGINATION_ENABLED=true
+      - ITEMS_PER_PAGE=25  # Set to 0 to show all items but keep pagination links
     volumes:
       - ./opds_abs/data:/app/opds_abs/data

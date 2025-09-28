@@ -68,6 +68,10 @@ async def fetch_from_api(
         if 'token' in params:
             token = params.pop('token')  # Extract and remove from params
             logger.debug("Using token from params for user %s", username)
+        # Check if api_key is in the params
+        elif 'api_key' in params:
+            token = params.pop('api_key')  # Use API key as token
+            logger.debug("Using API key from params for user %s", username)
         else:
             # Try to get from the TOKEN_CACHE
             token = get_token_for_username(username)

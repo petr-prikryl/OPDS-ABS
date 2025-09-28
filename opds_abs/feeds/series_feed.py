@@ -6,7 +6,7 @@ import asyncio
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
-from opds_abs.config import AUDIOBOOKSHELF_API
+from opds_abs.config import AUDIOBOOKSHELF_API, ITEMS_PER_PAGE, PAGINATION_ENABLED
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_series_details
 from opds_abs.utils.error_utils import log_error, handle_exception
