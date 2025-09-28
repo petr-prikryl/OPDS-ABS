@@ -12,7 +12,7 @@ from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items
-from opds_abs.config import ITEMS_PER_PAGE
+from opds_abs.config import ITEMS_PER_PAGE, PAGINATION_ENABLED
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -151,11 +151,16 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         except (ValueError, TypeError):
             start_index = 1
 
-        # Use items per page from config
-        items_per_page = ITEMS_PER_PAGE
-
-        # If items_per_page is 0, we'll show all items without pagination
-        no_pagination = (items_per_page <= 0)
+        # Check if pagination is enabled
+        if not PAGINATION_ENABLED:
+            # Pagination is disabled, show all items
+            items_per_page = 0
+            no_pagination = True
+        else:
+            # Use items per page from config
+            items_per_page = ITEMS_PER_PAGE
+            # If items_per_page is 0, we'll show all items without pagination
+            no_pagination = (items_per_page <= 0)
 
         # Current page calculation (1-based)
         page = 1 if no_pagination else ((start_index - 1) // items_per_page) + 1

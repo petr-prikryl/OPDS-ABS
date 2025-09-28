@@ -7,7 +7,7 @@ from typing import Dict, Any, List, Optional
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.api.client import fetch_from_api, get_download_urls_from_item
-from opds_abs.config import AUDIOBOOKSHELF_API
+from opds_abs.config import AUDIOBOOKSHELF_API, ITEMS_PER_PAGE, PAGINATION_ENABLED
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_author_details
 from opds_abs.utils.error_utils import (
@@ -127,7 +127,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             return self.filter_items(data)
 
     async def generate_author_items_feed(self, username: str, library_id: str, author_id: str, token: Optional[str] = None,
-                                         page: int = 1, per_page: int = 20):
+                                         page: int = 1, per_page: int = None):
         """Generate a feed of items by a specific author.
 
         Args:
@@ -182,9 +182,20 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 dict_to_xml(feed, error_data)
                 return self.create_response(feed)
 
+            # Check if pagination is enabled
+            if not PAGINATION_ENABLED:
+                # Pagination is disabled, show all items
+                per_page = 0
+                no_pagination = True
+            else:
+                # Use items per page from config if not specified
+                per_page = ITEMS_PER_PAGE if per_page is None else per_page
+                # If per_page is 0, we'll show all items without pagination
+                no_pagination = (per_page <= 0)
+
             # Apply pagination
             total_books = len(library_items)
-            total_pages = (total_books + per_page - 1) // per_page  # Ceiling division
+            total_pages = 1 if no_pagination else (total_books + per_page - 1) // per_page  # Ceiling division
 
             # Adjust page number if out of bounds
             if page < 1:
@@ -192,15 +203,20 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             elif page > total_pages and total_pages > 0:
                 page = total_pages
 
-            # Calculate start and end indices
-            start_idx = (page - 1) * per_page
-            end_idx = min(start_idx + per_page, total_books)
+            if no_pagination:
+                # No pagination, show all items
+                paged_items = library_items
+            else:
+                # Calculate start and end indices
+                start_idx = (page - 1) * per_page
+                end_idx = min(start_idx + per_page, total_books)
 
-            # Get the subset of books for this page
-            paged_items = library_items[start_idx:end_idx]
+                # Get the subset of books for this page
+                paged_items = library_items[start_idx:end_idx]
 
-            # Add pagination links
-            self._add_pagination_links_for_author(feed, username, library_id, author_id, page, total_pages, token)
+            # Add pagination links only if pagination is enabled
+            if not no_pagination:
+                self._add_pagination_links_for_author(feed, username, library_id, author_id, page, total_pages, token)
 
             # Get ebook files in optimal batch sizes to avoid overwhelming the server
             tasks = []

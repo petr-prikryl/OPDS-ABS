@@ -8,7 +8,10 @@ This project provides an OPDS (Open Publication Distribution System) server that
 
 - **Fetch books & libraries** from the **Audiobookshelf API**
 - **Supports OPDS** for easy integration with reading apps
-- **Simple authentication** using Audiobookshelf username and password
+- **Multiple authentication methods**:
+  - Basic auth with Audiobookshelf username and password
+  - API key authentication for better security and flexibility
+  - Bearer token authentication for API clients
 - **Pagination support** for better performance with large libraries
 - **Dockerized** for easy deployment
 - **Lightweight web interface**
@@ -22,7 +25,58 @@ This project provides an OPDS (Open Publication Distribution System) server that
  - **KOreader**
  - **Moon+ Reader Pro Android**
 
-## 🛠 Installation & Usage
+## � Authentication Methods
+
+OPDS-ABS supports multiple authentication methods to connect to your Audiobookshelf server:
+
+### Username and Password
+
+The standard authentication method using your Audiobookshelf username and password:
+
+```
+Username: your_abs_username
+Password: your_abs_password
+```
+
+This method always works regardless of configuration settings.
+
+### API Key Authentication
+
+For improved security, you can use an API key instead of your password. This is useful for clients where you don't want to store your actual password. **Note: API Key authentication must be enabled with the `API_KEY_AUTH_ENABLED=true` environment variable.**
+
+#### How to Get Your Audiobookshelf API Key
+
+1. Log into your Audiobookshelf web interface
+2. Click on your user icon in the top-right corner
+3. Select "User Settings"
+4. Find the "API Key" section
+5. Copy your existing API key or generate a new one
+
+#### Option 1: Basic Auth with API Key (Recommended for OPDS Clients)
+```
+Username: your_abs_username
+Password: your_audiobookshelf_api_key
+```
+Most OPDS clients support this authentication method. Use your Audiobookshelf API key in place of your password.
+
+#### Option 2: Bearer Token (For API Clients)
+For direct API access, you can use the API key as a Bearer token:
+```
+Authorization: Bearer your_audiobookshelf_api_key
+```
+
+The server will automatically determine your username from the API key by querying Audiobookshelf.
+
+This method matches Audiobookshelf's native API authentication behavior.
+
+### Switching Between Authentication Methods
+
+If you need to switch between different authentication methods, you can use the following environment variables:
+
+1. `API_KEY_AUTH_ENABLED=false` - Disables all API key authentication, forcing the use of username/password only
+2. `AUTH_TOKEN_CACHING=false` - Disables token caching, ensuring each request is authenticated fresh (useful when testing)
+
+## �🛠 Installation & Usage
 
 ### 1️⃣ **Clone the repository**
 
@@ -65,6 +119,7 @@ services:
 
       # Feature toggles
       - AUTH_ENABLED=true
+      - API_KEY_AUTH_ENABLED=true
       - CACHE_PERSISTENCE_ENABLED=true
 
       # Performance settings
@@ -78,6 +133,9 @@ services:
 |----------|-------------|---------|
 | `AUDIOBOOKSHELF_URL` | URL of your Audiobookshelf server | `http://localhost:13378` |
 | `AUTH_ENABLED` | Enable/disable authentication | `true` |
+| `API_KEY_AUTH_ENABLED` | Enable/disable API key authentication (set to `false` to only allow username/password) | `true` |
+| `AUTH_TOKEN_CACHING` | Enable/disable token caching (set to `false` to force re-authentication on each request) | `true` |
+| `PAGINATION_ENABLED` | Enable/disable pagination entirely (overrides ITEMS_PER_PAGE) | `true` |
 | `PUID` | User ID for file ownership | `1000` |
 | `PGID` | Group ID for file ownership | `1000` |
 | `ITEMS_PER_PAGE` | Number of items per page, 0 to disable pagination | `25` |
@@ -120,12 +178,14 @@ Update your docker-compose.yml with these values to ensure proper file permissio
 
 ### Pagination
 
-You can control pagination behavior through the `ITEMS_PER_PAGE` environment variable:
+You can control pagination behavior through two environment variables:
 
-- Set a positive number (e.g., 25) to enable pagination with that page size
-- Set to 0 to disable pagination and show all items in a single feed
+- `PAGINATION_ENABLED`: Set to `false` to completely disable pagination across all feeds
+- `ITEMS_PER_PAGE`: Set a positive number (e.g., 25) for page size, or 0 to disable pagination but keep the option
 
-Pagination helps improve performance and load times when dealing with large libraries.
+For most users, setting `PAGINATION_ENABLED=false` is the simplest way to disable pagination completely. Using `ITEMS_PER_PAGE=0` is an alternative that keeps the pagination code active but shows all items.
+
+Pagination helps improve performance and load times when dealing with large libraries, but disabling it can be useful for smaller libraries or when using clients that work better with complete feeds.
 
 ## 🙌 Contributing
 

@@ -5,6 +5,7 @@ import logging
 # Local application imports
 from opds_abs.core.feed_generator import BaseFeedGenerator
 from opds_abs.core.navigation import navigation
+from opds_abs.config import ITEMS_PER_PAGE, PAGINATION_ENABLED
 from opds_abs.utils import dict_to_xml
 
 # Set up logging

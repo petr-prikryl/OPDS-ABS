@@ -14,6 +14,8 @@ AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_URL + "/api"
 # Authentication configuration
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
 AUTH_CACHE_EXPIRY = int(os.getenv("AUTH_CACHE_EXPIRY", "86400"))  # Default: 24 hours
+API_KEY_AUTH_ENABLED = os.getenv("API_KEY_AUTH_ENABLED", "true").lower() == "true"  # Enable API key authentication
+AUTH_TOKEN_CACHING = os.getenv("AUTH_TOKEN_CACHING", "true").lower() == "true"  # Enable token caching
 
 # Cache configuration (in seconds)
 AUTHORS_CACHE_EXPIRY = int(os.getenv("AUTHORS_CACHE_EXPIRY", "1800"))  # 30 minutes for collections
@@ -31,6 +33,7 @@ CACHE_FILE_PATH = os.getenv("CACHE_FILE_PATH", str(pathlib.Path(__file__).parent
 CACHE_SAVE_INTERVAL = int(os.getenv("CACHE_SAVE_INTERVAL", "300"))  # Save cache every 5 minutes by default
 
 # Pagination configuration
+PAGINATION_ENABLED = os.getenv("PAGINATION_ENABLED", "true").lower() == "true"  # Enable/disable pagination
 ITEMS_PER_PAGE = int(os.getenv("ITEMS_PER_PAGE", "25"))  # Default: 25 items per page
 
 # Logging configuration
