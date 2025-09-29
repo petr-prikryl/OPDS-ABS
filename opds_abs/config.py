@@ -9,7 +9,11 @@ import pathlib
 
 # Load configuration from environment variables
 AUDIOBOOKSHELF_URL = os.getenv("AUDIOBOOKSHELF_URL", "http://localhost:13378")
-AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_URL + "/api"
+AUDIOBOOKSHELF_INTERNAL_URL = os.getenv("AUDIOBOOKSHELF_INTERNAL_URL", AUDIOBOOKSHELF_URL)
+AUDIOBOOKSHELF_EXTERNAL_URL = os.getenv("AUDIOBOOKSHELF_EXTERNAL_URL", AUDIOBOOKSHELF_URL)
+
+# API endpoints
+AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_INTERNAL_URL + "/api"
 
 # Authentication configuration
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
