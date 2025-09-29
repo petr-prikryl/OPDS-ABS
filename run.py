@@ -10,7 +10,7 @@ hot reload enabled for development convenience.
 import uvicorn
 import logging
 from opds_abs.config import (
-    LOG_LEVEL, AUDIOBOOKSHELF_URL,
+    LOG_LEVEL,
     AUDIOBOOKSHELF_INTERNAL_URL,
     AUDIOBOOKSHELF_EXTERNAL_URL,
     AUDIOBOOKSHELF_API
@@ -24,7 +24,6 @@ if __name__ == "__main__":
     # Log URL configurations
     logger.info("-" * 50)
     logger.info("Starting OPDS-ABS server with the following configuration:")
-    logger.info(f"AUDIOBOOKSHELF_URL: {AUDIOBOOKSHELF_URL}")
     logger.info(f"AUDIOBOOKSHELF_INTERNAL_URL: {AUDIOBOOKSHELF_INTERNAL_URL}")
     logger.info(f"AUDIOBOOKSHELF_EXTERNAL_URL: {AUDIOBOOKSHELF_EXTERNAL_URL}")
     logger.info(f"AUDIOBOOKSHELF_API: {AUDIOBOOKSHELF_API}")
