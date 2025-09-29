@@ -8,11 +8,14 @@ import os
 import pathlib
 
 # Load configuration from environment variables
+# Define the base URL first (backwards compatibility)
 AUDIOBOOKSHELF_URL = os.getenv("AUDIOBOOKSHELF_URL", "http://localhost:13378")
+
+# Allow explicit override of internal/external URLs
 AUDIOBOOKSHELF_INTERNAL_URL = os.getenv("AUDIOBOOKSHELF_INTERNAL_URL", AUDIOBOOKSHELF_URL)
 AUDIOBOOKSHELF_EXTERNAL_URL = os.getenv("AUDIOBOOKSHELF_EXTERNAL_URL", AUDIOBOOKSHELF_URL)
 
-# API endpoints
+# API endpoints - always use the internal URL for API calls
 AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_INTERNAL_URL + "/api"
 
 # Authentication configuration
