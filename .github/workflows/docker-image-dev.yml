@@ -18,15 +18,15 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.CR_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set outputs
         id: vars
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Build Docker image
         run: |
-          docker build . -t ghcr.io/${{ github.repository_owner }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
+          docker build . -t ghcr.io/${{ github.repository }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository_owner }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
+          docker push ghcr.io/${{ github.repository }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
