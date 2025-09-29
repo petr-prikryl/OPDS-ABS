@@ -12,6 +12,8 @@ services:
       - PGID=1000  # Set to your user's GID for proper file permissions
       # Application settings
       - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
+      - AUDIOBOOKSHELF_INTERNAL_URL=http://audiobookshelf:13378
+      - AUDIOBOOKSHELF_EXTERNAL_URL=http://abs.hlm.ing:13378
       - AUTH_ENABLED=true
       - API_KEY_AUTH_ENABLED=true
       - OPDS_LOG_LEVEL=INFO

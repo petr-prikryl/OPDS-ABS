@@ -10,6 +10,8 @@ import aiohttp
 # Local application imports
 from opds_abs.config import (
     AUDIOBOOKSHELF_API,
+    AUDIOBOOKSHELF_INTERNAL_URL,
+    AUDIOBOOKSHELF_EXTERNAL_URL,
     AUTH_ENABLED,
     AUTHORS_CACHE_EXPIRY,
     COLLECTIONS_CACHE_EXPIRY,

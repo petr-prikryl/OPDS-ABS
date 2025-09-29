@@ -131,7 +131,9 @@ services:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `AUDIOBOOKSHELF_URL` | URL of your Audiobookshelf server | `http://localhost:13378` |
+| `AUDIOBOOKSHELF_URL` | Main URL of your Audiobookshelf server | `http://localhost:13378` |
+| `AUDIOBOOKSHELF_INTERNAL_URL` | Internal URL for container-to-container communication | Same as `AUDIOBOOKSHELF_URL` |
+| `AUDIOBOOKSHELF_EXTERNAL_URL` | External URL for client downloads and images | Same as `AUDIOBOOKSHELF_URL` |
 | `AUTH_ENABLED` | Enable/disable authentication | `true` |
 | `API_KEY_AUTH_ENABLED` | Enable/disable API key authentication (set to `false` to only allow username/password) | `true` |
 | `AUTH_TOKEN_CACHING` | Enable/disable token caching (set to `false` to force re-authentication on each request) | `true` |

@@ -225,7 +225,9 @@ class BaseFeedGenerator:
             logger.debug("Book '%s' format: %s", book_title, ebook_format)
 
             for ebook in ebook_inos:
-                book_path = f"{AUDIOBOOKSHELF_API}/items/{book_id}"
+                # Use external URL for client-facing download links
+                from opds_abs.config import AUDIOBOOKSHELF_EXTERNAL_URL
+                book_path = f"{AUDIOBOOKSHELF_EXTERNAL_URL}/api/items/{book_id}"
                 file_ino = ebook.get('ino')
 
                 # Use our proxy endpoint instead of direct Audiobookshelf API link
