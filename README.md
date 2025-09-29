@@ -115,7 +115,11 @@ services:
       - PGID=1000  # Set to your user's GID
 
       # Connection settings
-      - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
+      # Legacy: AUDIOBOOKSHELF_URL is supported for backward compatibility
+      # - AUDIOBOOKSHELF_URL=http://audiobookshelf:13378
+      # Recommended: set internal and/or external URLs
+      - AUDIOBOOKSHELF_INTERNAL_URL=http://audiobookshelf
+      - AUDIOBOOKSHELF_EXTERNAL_URL=http://abs.example.com
 
       # Feature toggles
       - AUTH_ENABLED=true
@@ -131,9 +135,9 @@ services:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `AUDIOBOOKSHELF_URL` | Main URL of your Audiobookshelf server | `http://localhost:13378` |
-| `AUDIOBOOKSHELF_INTERNAL_URL` | Internal URL for container-to-container communication | Same as `AUDIOBOOKSHELF_URL` |
-| `AUDIOBOOKSHELF_EXTERNAL_URL` | External URL for client downloads and images | Same as `AUDIOBOOKSHELF_URL` |
+| `AUDIOBOOKSHELF_URL` | (Legacy) Main URL of your Audiobookshelf server. If set, used for both internal and external. | `http://localhost` |
+| `AUDIOBOOKSHELF_INTERNAL_URL` | Internal URL for container-to-container communication. If only this or EXTERNAL is set, that value is used for both. | `http://localhost` |
+| `AUDIOBOOKSHELF_EXTERNAL_URL` | External URL for client downloads and images. If only this or INTERNAL is set, that value is used for both. | `http://localhost` |
 | `AUTH_ENABLED` | Enable/disable authentication | `true` |
 | `API_KEY_AUTH_ENABLED` | Enable/disable API key authentication (set to `false` to only allow username/password) | `true` |
 | `AUTH_TOKEN_CACHING` | Enable/disable token caching (set to `false` to force re-authentication on each request) | `true` |
@@ -148,14 +152,19 @@ services:
 
 You can use the pre-built Docker image:
 
+
 ```bash
 docker run -d -p 8000:8000 \
-  --env AUDIOBOOKSHELF_URL=http://audiobookshelf:13378 \
+  --env AUDIOBOOKSHELF_INTERNAL_URL=http://audiobookshelf:13378 \
+  --env AUDIOBOOKSHELF_EXTERNAL_URL=http://abs.hlm.ing:13378 \
   --env PUID=$(id -u) \
   --env PGID=$(id -g) \
   --volume ./data:/app/opds_abs/data \
   ghcr.io/petr-prikryl/opds-abs:latest
 ```
+
+# Legacy support
+# You may still use AUDIOBOOKSHELF_URL for both internal and external if desired.
 
 Or use `docker-compose.yml` directly:
 

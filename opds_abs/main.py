@@ -58,7 +58,7 @@ from fastapi.exception_handlers import http_exception_handler
 # Local application imports
 from opds_abs.config import (
     LOG_LEVEL, AUTH_ENABLED, CACHE_PERSISTENCE_ENABLED, AUDIOBOOKSHELF_API,
-    AUDIOBOOKSHELF_URL, AUDIOBOOKSHELF_INTERNAL_URL, AUDIOBOOKSHELF_EXTERNAL_URL,
+    AUDIOBOOKSHELF_INTERNAL_URL, AUDIOBOOKSHELF_EXTERNAL_URL,
     API_KEY_AUTH_ENABLED, AUTH_TOKEN_CACHING,
     PAGINATION_ENABLED, ITEMS_PER_PAGE
 )
@@ -159,7 +159,7 @@ async def lifespan(app: FastAPI):
     """Load the cache from disk on application startup and log configuration."""
     # Log configuration settings
     logger.info("Starting OPDS-ABS with configuration:")
-    logger.info(f"Audiobookshelf URL: {AUDIOBOOKSHELF_URL}")
+    logger.info(f"Audiobookshelf URL: {AUDIOBOOKSHELF_INTERNAL_URL}")
     logger.info(f"Audiobookshelf Internal URL: {AUDIOBOOKSHELF_INTERNAL_URL}")
     logger.info(f"Audiobookshelf External URL: {AUDIOBOOKSHELF_EXTERNAL_URL}")
     logger.info(f"Authentication Enabled: {AUTH_ENABLED}")
