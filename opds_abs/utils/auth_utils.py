@@ -60,7 +60,7 @@ import aiohttp
 from fastapi import Request, HTTPException
 from fastapi.security import HTTPBasic
 
-from opds_abs.config import AUDIOBOOKSHELF_URL, AUDIOBOOKSHELF_INTERNAL_URL, AUTH_ENABLED, AUTH_CACHE_EXPIRY, API_KEY_AUTH_ENABLED, AUTH_TOKEN_CACHING
+from opds_abs.config import AUDIOBOOKSHELF_INTERNAL_URL, AUTH_ENABLED, AUTH_CACHE_EXPIRY, API_KEY_AUTH_ENABLED, AUTH_TOKEN_CACHING
 from opds_abs.utils.cache_utils import _create_cache_key, cache_get, cache_set
 from opds_abs.utils.error_utils import AuthenticationError, log_error
 
@@ -152,17 +152,9 @@ async def authenticate_with_audiobookshelf(username: str, password: str, api_key
             except aiohttp.ClientConnectorError as conn_error:
                 # Handle connection errors gracefully without traceback
                 error_id = id(conn_error)
-                logger.error("ERROR [%s]: Cannot connect to Audiobookshelf server at %s (using INTERNAL URL)",
-                            error_id, AUDIOBOOKSHELF_INTERNAL_URL)
-                # Extract hostname and port for clearer error message
-                url_parts = AUDIOBOOKSHELF_INTERNAL_URL.split('//')
-                if len(url_parts) > 1:
-                    host_info = url_parts[1]
-                else:
-                    host_info = AUDIOBOOKSHELF_INTERNAL_URL
-
+                logger.error("ERROR [%s]: Cannot connect to Audiobookshelf server at %s", error_id, AUDIOBOOKSHELF_INTERNAL_URL)
                 raise AuthenticationError(
-                    f"Error connecting to Audiobookshelf: Cannot connect to host {host_info} (internal URL)"
+                    f"Error connecting to Audiobookshelf: Cannot connect to host {AUDIOBOOKSHELF_INTERNAL_URL.split('//')[1]}"
                 ) from None  # Use "from None" to suppress the traceback
             except aiohttp.ClientError as client_error:
                 # For other client errors, provide a cleaner error message
@@ -286,17 +278,9 @@ async def authenticate_with_api_key(username: str, api_key: str) -> Tuple[str, s
                     return token, display_name
             except aiohttp.ClientConnectorError as conn_error:
                 error_id = id(conn_error)
-                logger.error("ERROR [%s]: Cannot connect to Audiobookshelf server at %s (API auth)",
-                           error_id, AUDIOBOOKSHELF_INTERNAL_URL)
-                # Extract hostname and port for clearer error message
-                url_parts = AUDIOBOOKSHELF_INTERNAL_URL.split('//')
-                if len(url_parts) > 1:
-                    host_info = url_parts[1]
-                else:
-                    host_info = AUDIOBOOKSHELF_INTERNAL_URL
-
+                logger.error("ERROR [%s]: Cannot connect to Audiobookshelf server at %s", error_id, AUDIOBOOKSHELF_INTERNAL_URL)
                 raise AuthenticationError(
-                    f"Error connecting to Audiobookshelf: Cannot connect to host {host_info} (internal URL)"
+                    f"Error connecting to Audiobookshelf: Cannot connect to host {AUDIOBOOKSHELF_INTERNAL_URL.split('//')[1]}"
                 ) from None
             except aiohttp.ClientError as client_error:
                 logger.error("API key authentication error for %s: %s", username, str(client_error))

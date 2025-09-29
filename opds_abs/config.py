@@ -7,15 +7,27 @@ environment variables.
 import os
 import pathlib
 
-# Load configuration from environment variables
-# Define the base URL first (backwards compatibility)
-AUDIOBOOKSHELF_URL = os.getenv("AUDIOBOOKSHELF_URL", "http://localhost:13378")
+# Legacy and fallback logic for Audiobookshelf URLs
+_abs_url = os.getenv("AUDIOBOOKSHELF_URL")
+_abs_internal = os.getenv("AUDIOBOOKSHELF_INTERNAL_URL")
+_abs_external = os.getenv("AUDIOBOOKSHELF_EXTERNAL_URL")
 
-# Allow explicit override of internal/external URLs
-AUDIOBOOKSHELF_INTERNAL_URL = os.getenv("AUDIOBOOKSHELF_INTERNAL_URL", AUDIOBOOKSHELF_URL)
-AUDIOBOOKSHELF_EXTERNAL_URL = os.getenv("AUDIOBOOKSHELF_EXTERNAL_URL", AUDIOBOOKSHELF_URL)
+if _abs_url:
+	# Legacy: use AUDIOBOOKSHELF_URL for both
+	AUDIOBOOKSHELF_INTERNAL_URL = _abs_url
+	AUDIOBOOKSHELF_EXTERNAL_URL = _abs_url
+elif _abs_internal and not _abs_external:
+	AUDIOBOOKSHELF_INTERNAL_URL = _abs_internal
+	AUDIOBOOKSHELF_EXTERNAL_URL = _abs_internal
+elif _abs_external and not _abs_internal:
+	AUDIOBOOKSHELF_INTERNAL_URL = _abs_external
+	AUDIOBOOKSHELF_EXTERNAL_URL = _abs_external
+else:
+	# Both set or none set: use both or fallback to default
+	AUDIOBOOKSHELF_INTERNAL_URL = _abs_internal or "http://localhost"
+	AUDIOBOOKSHELF_EXTERNAL_URL = _abs_external or AUDIOBOOKSHELF_INTERNAL_URL
 
-# API endpoints - always use the internal URL for API calls
+# API endpoints
 AUDIOBOOKSHELF_API = AUDIOBOOKSHELF_INTERNAL_URL + "/api"
 
 # Authentication configuration
