@@ -21,12 +21,14 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Set outputs
         id: vars
-        run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+          echo "repo_lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
 
       - name: Build Docker image
         run: |
-          docker build . -t ghcr.io/${{ github.repository }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
+          docker build . -t ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:dev-${{ steps.vars.outputs.sha_short }}
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}/opds-abs:dev-${{ steps.vars.outputs.sha_short }}
+          docker push ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:dev-${{ steps.vars.outputs.sha_short }}

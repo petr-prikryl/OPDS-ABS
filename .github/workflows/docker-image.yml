@@ -21,10 +21,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Set outputs
+        id: vars
+        run: |
+          echo "repo_lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+
       - name: Build Docker image
         run: |
-          docker build . -t ghcr.io/${{ github.repository }}/opds-abs:latest
+          docker build . -t ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:latest
 
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}/opds-abs:latest
+          docker push ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:latest
