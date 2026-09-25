@@ -197,7 +197,7 @@ async def authenticate_with_api_key(username: str, api_key: str) -> Tuple[str, s
                 async with session.get(
                     verify_url,
                     headers={
-                        "Authorization": f"Bearer {api_key}",
+                        "X-Api-Key": api_key,
                         "Content-Type": "application/json"
                     },
                     timeout=5  # Short timeout for faster detection of server issues
