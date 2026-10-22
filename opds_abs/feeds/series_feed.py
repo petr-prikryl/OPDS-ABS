@@ -29,6 +29,32 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         Inherits all attributes from BaseFeedGenerator.
     """
 
+    @staticmethod
+    def _sequence_sort_key(item):
+        """Build a sort key from a book's series sequence.
+
+        Audiobookshelf leaves ``sequence`` empty for unnumbered books and may
+        return values such as ``"1.5"`` or ``"1-2"``. Sorting on those directly
+        raised ValueError and turned the whole series feed into a 500, so
+        unnumbered or non-numeric books sort last instead.
+
+        Args:
+            item (dict): Library item.
+
+        Returns:
+            tuple: (group, number) where group 0 sorts numbered books first.
+        """
+        sequence = (
+            item.get("media", {})
+            .get("metadata", {})
+            .get("series", {})
+            .get("sequence")
+        )
+        try:
+            return (0, float(sequence))
+        except (TypeError, ValueError):
+            return (1, 0.0)
+
     def get_most_common_author(self, items):
         """Get the most common author from a list of items.
 
@@ -210,7 +236,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             # Sort by series sequence number if available
             sorted_items = sorted(
                 filtered_items,
-                key=lambda x: x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0)
+                key=self._sequence_sort_key
             )
 
             # Get the most common author from the series items
@@ -328,7 +354,7 @@ class SeriesFeedGenerator(BaseFeedGenerator):
             # But let's ensure they are sorted correctly just to be safe
             sorted_library_items = sorted(
                 library_items,
-                key=lambda x: float(x.get('media', {}).get('metadata', {}).get('series', {}).get('sequence', 0))
+                key=self._sequence_sort_key
             )
 
             logger.debug("Sorted %d items by sequence number for %s", len(sorted_library_items), series_name)
@@ -438,10 +464,8 @@ class SeriesFeedGenerator(BaseFeedGenerator):
         # Use the direct series route instead of query parameters
         series_id = series.get('id')
 
-        # Add token to the series link if provided
+        # Series link (never carries the ABS token)
         series_link = f"/opds/{username}/libraries/{library_id}/series/{series_id}"
-        if token:
-            series_link = f"{series_link}?token={token}"
 
         # Create entry data structure
         entry_data = {

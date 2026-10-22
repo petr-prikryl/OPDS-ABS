@@ -12,7 +12,6 @@ from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.series_feed import SeriesFeedGenerator
 from opds_abs.utils import dict_to_xml
 from opds_abs.utils.cache_utils import get_cached_library_items, get_cached_search_results
-from opds_abs.utils.auth_utils import get_token_for_username
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -111,16 +110,9 @@ class SearchFeedGenerator(BaseFeedGenerator):
         params = params or {}
         query = params.get("q", "")
 
-        # Check if token is in the query params (for OPDS clients that pass it that way)
-        if not token and params.get("token"):
-            token = params.get("token")
-
-        # Try to get cached token if none was provided
-        if not token and username:
-            cached_token = get_token_for_username(username)
-            if cached_token:
-                token = cached_token
-                logger.debug("Retrieved cached token for user %s", username)
+        # The token always comes from the authenticated request. Looking one up
+        # by username (or trusting a second one in the query string) would let a
+        # caller act as a different user.
 
         # Return empty search results if no query provided
         if not query:

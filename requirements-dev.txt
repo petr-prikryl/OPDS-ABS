@@ -1,4 +1,7 @@
 -r requirements.txt
+pytest
+pytest-asyncio
+httpx
 pylint
 pydocstyle
 flake8

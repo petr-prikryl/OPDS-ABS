@@ -448,20 +448,37 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
             (media.get("ebookFormat") is not None and media.get("ebookFormat"))
         )
 
-        if has_ebook:
-            # Get author name from metadata
+        if not has_ebook:
+            continue
+
+        # metadata["authors"] lists every real author. metadata["authorName"] is a
+        # pre-joined display string ("Author A & Author B") and must not become a
+        # fake author of its own.
+        item_authors = metadata.get("authors") or []
+        candidates = [
+            (author.get("id"), author.get("name"))
+            for author in item_authors
+            if isinstance(author, dict) and author.get("name")
+        ]
+        if not candidates:
             author_name = metadata.get("authorName")
             if author_name:
-                # Add or update author in our tracking dictionary
-                if author_name in authors_with_ebooks:
-                    authors_with_ebooks[author_name]["ebook_count"] += 1
-                else:
-                    authors_with_ebooks[author_name] = {
-                        "name": author_name,
-                        "ebook_count": 1,
-                        "id": None,  # Will be populated from author details
-                        "imagePath": None  # Will be populated from author details
-                    }
+                candidates = [(None, author_name)]
+
+        for author_id, author_name in candidates:
+            key = author_id or author_name
+            entry = authors_with_ebooks.get(key)
+            if entry:
+                entry["ebook_count"] += 1
+                if not entry.get("id") and author_id:
+                    entry["id"] = author_id
+            else:
+                authors_with_ebooks[key] = {
+                    "name": author_name,
+                    "ebook_count": 1,
+                    "id": author_id,
+                    "imagePath": None
+                }
 
     # Now get full author details from the API
     authors_params = {"limit": 2000, "sort": "name"}
@@ -473,15 +490,31 @@ async def get_cached_author_details(fetch_func, filter_func, username, library_i
         return list(authors_with_ebooks.values())
 
     # Enhance author information with details from the author endpoint
-    for author in author_data.get("authors", []):
-        author_name = author.get("name")
-        if author_name and author_name in authors_with_ebooks:
-            # Add ID and image path from author details
-            authors_with_ebooks[author_name]["id"] = author.get("id")
-            authors_with_ebooks[author_name]["imagePath"] = author.get("imagePath")
+    authors_by_id = {
+        author.get("id"): author
+        for author in author_data.get("authors", [])
+        if author.get("id")
+    }
+    authors_by_name = {
+        author.get("name"): author
+        for author in author_data.get("authors", [])
+        if author.get("name")
+    }
 
-    # Convert to list for the caller
-    authors_list = list(authors_with_ebooks.values())
+    for entry in authors_with_ebooks.values():
+        details = authors_by_id.get(entry.get("id")) or authors_by_name.get(entry.get("name"))
+        if details:
+            entry["id"] = details.get("id") or entry.get("id")
+            entry["imagePath"] = details.get("imagePath")
+
+    # An author without an id has no feed to link to, so it would render a broken
+    # /authors/None entry.
+    authors_list = []
+    for entry in authors_with_ebooks.values():
+        if entry.get("id"):
+            authors_list.append(entry)
+        else:
+            logger.debug("Skipping author %s: Audiobookshelf has no author record", entry.get("name"))
 
     # Cache the result for future use
     cache_set(cache_key, authors_list)

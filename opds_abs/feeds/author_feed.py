@@ -56,6 +56,34 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         logger.warning("Could not find author with ID %s in library %s", author_id, library_id)
         return {}
 
+    @staticmethod
+    def _item_matches_author(item: Dict[str, Any], author_id: str, author_name: str) -> bool:
+        """Check whether a library item belongs to a given author.
+
+        Audiobookshelf stores a combined display string in ``authorName`` for
+        co-written books ("Author A & Author B"), so the structured ``authors``
+        list is checked first.
+
+        Args:
+            item (dict): Library item from Audiobookshelf.
+            author_id (str): ID of the author being filtered.
+            author_name (str): Name of the author being filtered.
+
+        Returns:
+            bool: True when the item is by that author.
+        """
+        metadata = item.get("media", {}).get("metadata", {})
+
+        for author in metadata.get("authors") or []:
+            if not isinstance(author, dict):
+                continue
+            if author_id and author.get("id") == author_id:
+                return True
+            if author_name and author.get("name") == author_name:
+                return True
+
+        return metadata.get("authorName") == author_name
+
     async def filter_items_by_author_id(self, username: str, library_id: str, author_id: str, token: Optional[str] = None) -> List[Dict[str, Any]]:
         """Filter items by author ID using cached items when possible.
 
@@ -100,8 +128,9 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             filtered_items = [
                 item for item in library_items
                 if (
-                    # Check author match
-                    item.get("media", {}).get("metadata", {}).get("authorName") == author_name and
+                    # Check author match, including co-authored books where
+                    # authorName is a combined "A & B" display string
+                    self._item_matches_author(item, author_id, author_name) and
                     # Check for presence of ebook
                     (
                         item.get("media", {}).get("ebookFile") is not None or
@@ -264,7 +293,6 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         """
         # Base URL for pagination
         base_url = f"/opds/{username}/libraries/{library_id}/authors/{author_id}"
-        token_param = f"&token={token}" if token else ""
 
         # Add pagination links
         links = []
@@ -274,7 +302,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "first",
-                    "href": f"{base_url}?page=1{token_param}",
+                    "href": f"{base_url}?page=1",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -284,7 +312,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "previous",
-                    "href": f"{base_url}?page={current_page-1}{token_param}",
+                    "href": f"{base_url}?page={current_page-1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -294,7 +322,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "next",
-                    "href": f"{base_url}?page={current_page+1}{token_param}",
+                    "href": f"{base_url}?page={current_page+1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -304,7 +332,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "last",
-                    "href": f"{base_url}?page={total_pages}{token_param}",
+                    "href": f"{base_url}?page={total_pages}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -341,10 +369,6 @@ class AuthorFeedGenerator(BaseFeedGenerator):
 
             # Create the base URL for the author's books
             author_url = f"/opds/{username}/libraries/{library_id}/authors/{author_id}"
-
-            # Add token to URL if provided
-            if token:
-                author_url += f"?token={token}"
 
             # Create the entry data structure
             entry_data = {
@@ -428,7 +452,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             raise FeedGenerationError(f"Error processing authors with ebooks: {str(e)}") from e
 
     async def generate_authors_feed(self, username: str, library_id: str, token: Optional[str] = None,
-                                    page: int = 1, per_page: int = 50):
+                                    page: int = 1, per_page: int = None):
         """Generate an OPDS feed listing authors with ebooks.
 
         Creates an OPDS feed containing all authors in the specified library
@@ -484,24 +508,32 @@ class AuthorFeedGenerator(BaseFeedGenerator):
                 logger.debug("Found %d authors with ebooks", len(authors_list))
 
                 # Calculate pagination values
+                if not PAGINATION_ENABLED:
+                    per_page = 0
+                elif per_page is None:
+                    per_page = ITEMS_PER_PAGE
+
                 total_authors = len(authors_list)
-                total_pages = (total_authors + per_page - 1) // per_page  # Ceiling division
+                if per_page and per_page > 0:
+                    total_pages = (total_authors + per_page - 1) // per_page  # Ceiling division
 
-                # Adjust page number if out of bounds
-                if page < 1:
-                    page = 1
-                elif page > total_pages and total_pages > 0:
-                    page = total_pages
+                    # Adjust page number if out of bounds
+                    if page < 1:
+                        page = 1
+                    elif page > total_pages and total_pages > 0:
+                        page = total_pages
 
-                # Calculate start and end indices
-                start_idx = (page - 1) * per_page
-                end_idx = min(start_idx + per_page, total_authors)
+                    # Calculate start and end indices
+                    start_idx = (page - 1) * per_page
+                    end_idx = min(start_idx + per_page, total_authors)
 
-                # Get the subset of authors for this page
-                paged_authors = authors_list[start_idx:end_idx]
+                    # Get the subset of authors for this page
+                    paged_authors = authors_list[start_idx:end_idx]
 
-                # Add pagination links
-                self._add_pagination_links(feed, username, library_id, page, total_pages, token)
+                    # Add pagination links
+                    self._add_pagination_links(feed, username, library_id, page, total_pages, token)
+                else:
+                    paged_authors = authors_list
 
                 # Add each author to the feed
                 for author in paged_authors:
@@ -554,7 +586,6 @@ class AuthorFeedGenerator(BaseFeedGenerator):
         """
         # Base URL for pagination
         base_url = f"/opds/{username}/libraries/{library_id}/authors"
-        token_param = f"&token={token}" if token else ""
 
         # Add pagination links
         links = []
@@ -564,7 +595,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "first",
-                    "href": f"{base_url}?page=1{token_param}",
+                    "href": f"{base_url}?page=1",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -574,7 +605,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "previous",
-                    "href": f"{base_url}?page={current_page-1}{token_param}",
+                    "href": f"{base_url}?page={current_page-1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -584,7 +615,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "next",
-                    "href": f"{base_url}?page={current_page+1}{token_param}",
+                    "href": f"{base_url}?page={current_page+1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -594,7 +625,7 @@ class AuthorFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "last",
-                    "href": f"{base_url}?page={total_pages}{token_param}",
+                    "href": f"{base_url}?page={total_pages}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })

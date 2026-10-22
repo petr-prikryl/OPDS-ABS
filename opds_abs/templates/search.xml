@@ -3,7 +3,7 @@
 <ShortName>OPDS-ABS</ShortName>
 <Description>Search the Audiobookshelf ebook catalog.</Description>
 <Url type="application/atom+xml;profile=opds-catalog;kind=acquisition"
-     template="/opds/{{ username }}/libraries/{{ library_id }}/search?q={searchTerms}{% if token %}&token={{ token }}{% endif %}" />
+     template="{{ search_url }}?q={searchTerms}" />
 <Query role="example" searchTerms="shakespeare hamlet"/>
 <Query role="example" searchTerms="doyle detective"/>
 <Query role="example" searchTerms="love stories"/>
