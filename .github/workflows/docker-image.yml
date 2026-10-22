@@ -5,9 +5,30 @@ on:
     branches: [ "master" ]
   pull_request:
     branches: [ "master" ]
-  
+
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio httpx
+
+      - name: Run tests
+        run: pytest -q
+
   build-and-push:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -17,22 +38,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Set outputs
+        id: vars
+        run: |
+          echo "repo_lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
+          echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Build Docker image
+        run: |
+          docker build . \
+            -t ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:latest \
+            -t ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:sha-${{ steps.vars.outputs.sha_short }}
+
+      # Pull requests only build: publishing :latest from a PR would ship
+      # unreviewed code to every user of the image.
       - name: Log in to GitHub Container Registry
+        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Set outputs
-        id: vars
-        run: |
-          echo "repo_lowercase=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT
-
-      - name: Build Docker image
-        run: |
-          docker build . -t ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:latest
-
       - name: Push Docker image
+        if: github.event_name == 'push'
         run: |
           docker push ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:latest
+          docker push ghcr.io/${{ steps.vars.outputs.repo_lowercase }}:sha-${{ steps.vars.outputs.sha_short }}
