@@ -2,3 +2,7 @@ __pycache__/
 .DS_Store
 *.py.swp
 .env
+.venv/
+venv/
+.pytest_cache/
+*.pyc

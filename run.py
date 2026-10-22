@@ -4,9 +4,11 @@ This script serves as the entry point for the OPDS-ABS application.
 It configures and starts the uvicorn ASGI server with appropriate settings
 based on the configured log level.
 
-The server runs on all network interfaces (0.0.0.0) on port 8000 with
-hot reload enabled for development convenience.
+The server runs on all network interfaces (0.0.0.0) on port 8000. Auto-reload
+is off by default: inside Docker it makes uvicorn poll the filesystem forever,
+which keeps an idle container busy. Set UVICORN_RELOAD=true for development.
 """
+import os
 import uvicorn
 import logging
 from opds_abs.config import (
@@ -19,6 +21,10 @@ from opds_abs.config import (
 # Set up logging
 logging.basicConfig(level=getattr(logging, LOG_LEVEL))
 logger = logging.getLogger("opds_abs")
+
+# Auto-reload is a development convenience only. It is disabled by default so a
+# container does not poll the filesystem while idle.
+RELOAD_ENABLED = os.getenv("UVICORN_RELOAD", "false").lower() == "true"
 
 if __name__ == "__main__":
     # Log URL configurations
@@ -37,7 +43,7 @@ if __name__ == "__main__":
         "opds_abs.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True,
+        reload=RELOAD_ENABLED,
         log_level=log_level,
         use_colors=True
     )

@@ -269,7 +269,6 @@ class CollectionFeedGenerator(BaseFeedGenerator):
         """
         # Base URL for pagination
         base_url = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
-        token_param = f"&token={token}" if token else ""
 
         # Add pagination links
         links = []
@@ -279,7 +278,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "first",
-                    "href": f"{base_url}?page=1{token_param}",
+                    "href": f"{base_url}?page=1",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -289,7 +288,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "previous",
-                    "href": f"{base_url}?page={current_page-1}{token_param}",
+                    "href": f"{base_url}?page={current_page-1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -299,7 +298,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "next",
-                    "href": f"{base_url}?page={current_page+1}{token_param}",
+                    "href": f"{base_url}?page={current_page+1}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -309,7 +308,7 @@ class CollectionFeedGenerator(BaseFeedGenerator):
             links.append({
                 "_attrs": {
                     "rel": "last",
-                    "href": f"{base_url}?page={total_pages}{token_param}",
+                    "href": f"{base_url}?page={total_pages}",
                     "type": "application/atom+xml;profile=opds-catalog"
                 }
             })
@@ -356,10 +355,8 @@ class CollectionFeedGenerator(BaseFeedGenerator):
                         cover_url = f"{book_path}/cover?format=jpeg"
                         break
 
-            # Add token to the collection link if provided
+            # Collection link (never carries the ABS token)
             collection_link = f"/opds/{username}/libraries/{library_id}/collections/{collection_id}"
-            if token:
-                collection_link = f"{collection_link}?token={token}"
 
             # Create entry data structure
             entry_data = {

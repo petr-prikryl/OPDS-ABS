@@ -120,12 +120,8 @@ class NavigationFeedGenerator(BaseFeedGenerator):
                 base_path = f"/opds/{username}/libraries/{library_id}/"
                 nav_params = nav.get('params','')
 
-                # Add authentication token to nav_params if available
-                if token and nav_params:
-                    nav_href = f"{base_path}{nav.get('path','')}?{nav_params}&token={token}"
-                elif token:
-                    nav_href = f"{base_path}{nav.get('path','')}?token={token}"
-                elif nav_params:
+                # Navigation links never carry the ABS token
+                if nav_params:
                     nav_href = f"{base_path}{nav.get('path','')}?{nav_params}"
                 else:
                     nav_href = f"{base_path}{nav.get('path','')}"

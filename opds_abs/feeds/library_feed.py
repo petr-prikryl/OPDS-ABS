@@ -184,8 +184,14 @@ class LibraryFeedGenerator(BaseFeedGenerator):
         else:
             current_path_with_page = current_path
 
-        # Make a copy of the params without the start_index for API requests
-        api_params = {k: v for k, v in params.items() if k != 'start_index'}
+        # Make a copy of the params without the start_index for API requests.
+        # Only parameters Audiobookshelf understands are forwarded; our own
+        # control parameters (and any credential) must not leak upstream.
+        _forwarded_params = {"sort", "desc", "filter"}
+        api_params = {
+            k: v for k, v in params.items()
+            if k != 'start_index' and k in _forwarded_params
+        }
 
         # Check if we're filtering by collection using direct collection parameter
         collection_id = params.get('collection')

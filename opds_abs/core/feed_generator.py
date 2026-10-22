@@ -114,10 +114,9 @@ class BaseFeedGenerator:
             dict_to_xml(base_feed, search_link)
 
             if current_path:
-                # Base URL parameters
-                # Check if current_path already has parameters
-                separator = "&" if "?" in current_path else "?"
-                auth_param = f"{separator}token={token}" if token else ""
+                # Links never carry the ABS token: it would end up in access logs,
+                # proxy logs and reader history. OPDS clients send Basic auth on
+                # every request instead.
 
                 # Add start link
                 start_link = {
@@ -126,7 +125,7 @@ class BaseFeedGenerator:
                             "rel": "start",
                             "title": "Start Page",
                             "type": "application/atom+xml;profile=opds-catalog",
-                            "href": f"/opds/{username}/libraries/{library_id}{auth_param}"
+                            "href": f"/opds/{username}/libraries/{library_id}"
                         }
                     }
                 }
@@ -139,7 +138,7 @@ class BaseFeedGenerator:
                             "rel": "self",
                             "title": "This Page",
                             "type": "application/atom+xml;profile=opds-catalog",
-                            "href": f"/opds/{current_path}{auth_param}"
+                            "href": f"/opds/{current_path}"
                         }
                     }
                 }
@@ -152,7 +151,7 @@ class BaseFeedGenerator:
                             "rel": "alternate",
                             "title": "HTML Page",
                             "type": "text/html",
-                            "href": f"/opds/{current_path}{auth_param}"
+                            "href": f"/opds/{current_path}"
                         }
                     }
                 }
@@ -261,7 +260,7 @@ class BaseFeedGenerator:
                         "id": {"_text": book_id},
                         "updated": {"_text": self.get_current_timestamp()},
                         "content": {
-                            "_attrs": {"type": "xhtml"},
+                            "_attrs": {"type": "html"},
                             "_text": content_text
                         },
                         "author": {
@@ -434,9 +433,6 @@ class BaseFeedGenerator:
         """
         total_pages = (total_items + items_per_page - 1) // items_per_page  # Ceiling division
 
-        # Base URL parameters
-        auth_param = f"&token={token}" if token else ""
-
         # Check if current_path already has parameters
         has_params = "?" in current_path
 
@@ -454,7 +450,7 @@ class BaseFeedGenerator:
                         "rel": "next",
                         "title": "Next Page",
                         "type": "application/atom+xml;profile=opds-catalog",
-                        "href": f"/opds/{current_path}{separator}start_index={next_start_index}{auth_param}"
+                        "href": f"/opds/{current_path}{separator}start_index={next_start_index}"
                     }
                 }
             }
@@ -474,7 +470,7 @@ class BaseFeedGenerator:
                         "rel": "previous",
                         "title": "Previous Page",
                         "type": "application/atom+xml;profile=opds-catalog",
-                        "href": f"/opds/{current_path}{separator}start_index={prev_start_index}{auth_param}"
+                        "href": f"/opds/{current_path}{separator}start_index={prev_start_index}"
                     }
                 }
             }

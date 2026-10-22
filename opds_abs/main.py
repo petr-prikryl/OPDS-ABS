@@ -45,11 +45,14 @@ error handling and authentication patterns applied consistently.
 import logging
 import time
 import atexit
+import inspect
 from contextlib import asynccontextmanager
+from urllib.parse import quote
+from xml.sax.saxutils import escape as xml_escape
 
 
 # Third-party imports
-from fastapi import FastAPI, Request, HTTPException, Depends
+from fastapi import FastAPI, Request, HTTPException, Depends, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
@@ -70,7 +73,7 @@ from opds_abs.feeds.author_feed import AuthorFeedGenerator
 from opds_abs.feeds.search_feed import SearchFeedGenerator
 from opds_abs.utils.cache_utils import _cache, clear_cache, load_cache_from_disk, save_cache_to_disk
 from opds_abs.api.client import invalidate_cache
-from opds_abs.utils.auth_utils import get_authenticated_user, require_auth
+from opds_abs.utils.auth_utils import get_authenticated_user, require_admin
 from opds_abs.utils.error_utils import (
     OPDSBaseException,
     ResourceNotFoundError,
@@ -200,6 +203,31 @@ app.mount("/static", StaticFiles(directory="opds_abs/static"), name="static")
 # Setup templates
 templates = Jinja2Templates(directory="opds_abs/templates")
 
+# Starlette changed the TemplateResponse signature (request first) in 0.4x and
+# removed the old form in 1.x. Detect which one this environment provides so the
+# app works with both.
+_TEMPLATE_RESPONSE_TAKES_REQUEST = (
+    "request" in inspect.signature(templates.TemplateResponse).parameters
+)
+
+
+def render_template(request: Request, name: str, context: dict = None, **kwargs):
+    """Render a Jinja template across Starlette versions.
+
+    Args:
+        request (Request): The incoming request.
+        name (str): Template file name.
+        context (dict, optional): Extra template context.
+        **kwargs: Passed through to TemplateResponse (e.g. media_type).
+
+    Returns:
+        Response: The rendered template response.
+    """
+    context = context or {}
+    if _TEMPLATE_RESPONSE_TAKES_REQUEST:
+        return templates.TemplateResponse(request, name, context, **kwargs)
+    return templates.TemplateResponse(name, {"request": request, **context}, **kwargs)
+
 # Register atexit handler as a backup for when the shutdown event doesn't fire
 if CACHE_PERSISTENCE_ENABLED:
     atexit.register(save_cache_to_disk)
@@ -261,8 +289,8 @@ async def api_client_error_handler(request: Request, exc: APIClientError):
     xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <error xmlns="http://opds-spec.org/2010/catalog">
   <id>{error_id}</id>
-  <message>{str(exc)}</message>
-  <context>{context}</context>
+  <message>{xml_escape(str(exc))}</message>
+  <context>{xml_escape(context)}</context>
 </error>"""
 
     # Return the XML response with proper content type
@@ -312,8 +340,8 @@ async def authentication_error_handler(request: Request, exc: AuthenticationErro
     xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <error xmlns="http://opds-spec.org/2010/catalog">
   <id>{error_id}</id>
-  <message>{str(exc)}</message>
-  <context>{context}</context>
+  <message>{xml_escape(str(exc))}</message>
+  <context>{xml_escape(context)}</context>
 </error>"""
 
     # Return the XML response with proper content type and WWW-Authenticate header
@@ -348,8 +376,8 @@ async def service_unavailable_handler(request: Request, exc: HTTPException):
     xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <error xmlns="http://opds-spec.org/2010/catalog">
   <id>{error_id}</id>
-  <message>Audiobookshelf server is unavailable: {exc.detail}</message>
-  <context>{context}</context>
+  <message>Audiobookshelf server is unavailable: {xml_escape(str(exc.detail))}</message>
+  <context>{xml_escape(context)}</context>
 </error>"""
 
     # Return the XML response with proper content type
@@ -386,7 +414,7 @@ def index(request: Request):
         HTMLResponse: The rendered index.html template.
     """
     try:
-        return templates.TemplateResponse("index.html", {"request": request})
+        return render_template(request, "index.html")
     except Exception as e:
         log_error(e, context="Rendering index page")
         raise convert_to_http_exception(e, status_code=500,
@@ -433,7 +461,7 @@ async def search_xml(
     request: Request,
     auth_info: tuple = Depends(get_authenticated_user)
 ):
-    """Render the search XML template.
+    """Render the OpenSearch description document.
 
     Args:
         username (str): The username path parameter.
@@ -442,23 +470,35 @@ async def search_xml(
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
-        HTMLResponse: The rendered search.xml template.
+        Response: The rendered OpenSearch description as XML.
     """
     try:
-        auth_username, token, display_name = auth_info
+        auth_username, _token, display_name = auth_info
 
         # Ensure this is the authenticated user's feed or authentication is disabled
         if AUTH_ENABLED and auth_username and username != display_name:
-            return RedirectResponse(url=f"/opds/{display_name}/libraries/{library_id}/search.xml")
+            return RedirectResponse(
+                url=f"/opds/{quote(display_name, safe='')}/libraries/"
+                    f"{quote(library_id, safe='')}/search.xml"
+            )
 
-        params = dict(request.query_params)
-        return templates.TemplateResponse("search.xml", {
-            "request": request,
-            "username": display_name if auth_username else username,
-            "library_id": library_id,
-            "searchTerms": params.get('q', ''),
-            "token": token  # Add token to the template context
-        })
+        effective_username = display_name if auth_username else username
+
+        # OPDS clients resolve the template against the server, so it has to be
+        # absolute. request.base_url honours X-Forwarded-* when uvicorn runs with
+        # --proxy-headers.
+        base_url = str(request.base_url).rstrip("/")
+        search_url = (
+            f"{base_url}/opds/{quote(effective_username, safe='')}/libraries/"
+            f"{quote(library_id, safe='')}/search"
+        )
+
+        return render_template(
+            request,
+            "search.xml",
+            {"search_url": search_url},
+            media_type="application/opensearchdescription+xml",
+        )
     except Exception as e:
         log_error(e, context=f"Rendering search XML for user {username}, library {library_id}")
         raise convert_to_http_exception(e, status_code=500,
@@ -789,6 +829,7 @@ async def opds_collection_items(
     username: str,
     library_id: str,
     collection_id: str,
+    page: int = Query(1, ge=1),
     auth_info: tuple = Depends(get_authenticated_user)
 ):
     """Get items from a specific collection using cached data when possible.
@@ -797,6 +838,7 @@ async def opds_collection_items(
         username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         collection_id (str): ID of the collection to filter by.
+        page (int): Page number for pagination (1-based).
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
@@ -816,7 +858,8 @@ async def opds_collection_items(
             effective_username,
             library_id,
             collection_id,
-            token=token
+            token=token,
+            page=page
         )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
@@ -831,6 +874,7 @@ async def opds_collection_items(
 async def opds_authors(
     username: str,
     library_id: str,
+    page: int = Query(1, ge=1),
     auth_info: tuple = Depends(get_authenticated_user)
 ):
     """Get authors from a specific library.
@@ -838,6 +882,7 @@ async def opds_authors(
     Args:
         username (str): The username path parameter.
         library_id (str): ID of the library to get authors from.
+        page (int): Page number for pagination (1-based).
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
@@ -856,7 +901,8 @@ async def opds_authors(
         return await author_feed.generate_authors_feed(
             effective_username,
             library_id,
-            token=token
+            token=token,
+            page=page
         )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
@@ -872,6 +918,7 @@ async def opds_author_items(
     username: str,
     library_id: str,
     author_id: str,
+    page: int = Query(1, ge=1),
     auth_info: tuple = Depends(get_authenticated_user)
 ):
     """Get items from a specific author using cached data when possible.
@@ -880,6 +927,7 @@ async def opds_author_items(
         username (str): The username path parameter.
         library_id (str): ID of the library to get items from.
         author_id (str): ID of the author to filter by.
+        page (int): Page number for pagination (1-based).
         auth_info (tuple): The authentication info (username, token, display_name).
 
     Returns:
@@ -899,7 +947,8 @@ async def opds_author_items(
             effective_username,
             library_id,
             author_id,
-            token=token
+            token=token,
+            page=page
         )
     except ResourceNotFoundError as e:
         # ResourceNotFoundError is already properly handled in the feed generator
@@ -911,7 +960,7 @@ async def opds_author_items(
 
 
 @app.get("/admin/cache/stats")
-async def get_cache_stats(auth_info: tuple = Depends(require_auth)):
+async def get_cache_stats(auth_info: tuple = Depends(require_admin)):
     """Get statistics about the cache.
 
     Returns:
@@ -953,7 +1002,7 @@ async def get_cache_stats(auth_info: tuple = Depends(require_auth)):
 
 
 @app.post("/admin/cache/clear")
-async def clear_all_cache(auth_info: tuple = Depends(require_auth)):
+async def clear_all_cache(auth_info: tuple = Depends(require_admin)):
     """Clear all items in the cache.
 
     Returns:
@@ -972,7 +1021,7 @@ async def clear_all_cache(auth_info: tuple = Depends(require_auth)):
 async def invalidate_specific_cache(
     endpoint: str = None,
     username: str = None,
-    auth_info: tuple = Depends(require_auth)
+    auth_info: tuple = Depends(require_admin)
 ):
     """Invalidate cache for a specific endpoint.
 
@@ -1003,13 +1052,61 @@ async def invalidate_specific_cache(
         raise CacheError(f"Failed to invalidate cache for {endpoint}") from e
 
 
-def _latin1_safe(value: str) -> bool:
-    """Return True if the header value can be encoded as latin-1 (HTTP-safe)."""
+# Fallback filename extension per response MIME type
+_MIME_TO_EXTENSION = {
+    "application/epub+zip": "epub",
+    "application/pdf": "pdf",
+    "application/x-mobipocket-ebook": "mobi",
+    "application/vnd.amazon.ebook": "azw3",
+    "application/x-cbz": "cbz",
+    "application/x-cbr": "cbr",
+    "application/x-fictionbook+xml": "fb2",
+    "application/x-fictionbook+zip": "fbz",
+    "text/plain": "txt",
+    "text/html": "html",
+    "text/markdown": "md",
+}
+
+
+def _header_value_safe(value: str) -> bool:
+    """Return True if a header value is ASCII-only and therefore always safe.
+
+    Starlette encodes headers as latin-1, but Audiobookshelf sends raw UTF-8
+    filenames, which arrive as surrogate escapes and raise UnicodeEncodeError.
+    Only ASCII is unambiguously safe in an HTTP header.
+    """
     try:
-        value.encode("latin-1")
+        value.encode("ascii")
         return True
     except UnicodeEncodeError:
         return False
+
+
+def _download_headers(upstream_headers) -> dict:
+    """Build the response headers for a proxied download.
+
+    Audiobookshelf sends raw UTF-8 filenames in Content-Disposition, which
+    Starlette cannot encode as latin-1 (that raised a 500 for every umlaut).
+    Such a header is replaced with an ASCII-safe filename.
+
+    Args:
+        upstream_headers: Headers from the Audiobookshelf response.
+
+    Returns:
+        dict: Headers safe to hand to Starlette.
+    """
+    content_type = upstream_headers.get("Content-Type", "application/octet-stream")
+    headers = {"Content-Type": content_type}
+
+    content_length = upstream_headers.get("Content-Length")
+    if content_length:
+        headers["Content-Length"] = content_length
+
+    disposition = upstream_headers.get("Content-Disposition")
+    if disposition and _header_value_safe(disposition):
+        headers["Content-Disposition"] = disposition
+
+    return headers
 
 
 @app.get("/opds/proxy/download/{item_id}/file/{file_ino}")
@@ -1021,10 +1118,9 @@ async def proxy_download(
 ):
     """Proxy file downloads from Audiobookshelf to handle authentication properly.
 
-    This solves the authentication issue when clicking download links by:
-    1. Receiving the download request from the OPDS client
-    2. Adding proper authentication to the upstream request to Audiobookshelf
-    3. Streaming the file content back to the client
+    The upstream request is made exactly once. Its status is checked before any
+    byte is sent to the client, so a missing file is a real 404 instead of an
+    empty 200 response.
 
     Args:
         item_id: The ID of the item to download
@@ -1041,8 +1137,7 @@ async def proxy_download(
     username, token, display_name = auth_info
 
     if not token:
-        # Log at debug level instead of error since this is expected behavior
-        # for OPDS clients which try without auth first
+        # Expected for OPDS clients which try without auth first
         logger.debug("Authentication challenge for download of item %s", item_id)
         raise HTTPException(
             status_code=401,
@@ -1052,71 +1147,70 @@ async def proxy_download(
 
     logger.debug("Proxying download for item %s, file %s", item_id, file_ino)
 
-    # Construct the URL for the file download on the Audiobookshelf API
     url = f"{AUDIOBOOKSHELF_API}/items/{item_id}/file/{file_ino}/download"
-
-    # Set up proper authentication headers
     headers = {"Authorization": f"Bearer {token}"}
-    logger.debug("Making authenticated request to %s", url)
 
-    async def stream_file():
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.get(url, headers=headers) as response:
-                    response.raise_for_status()
-                    logger.debug("Received successful response from Audiobookshelf API with status %s", response.status)
-
-                    # Stream the response content
-                    async for chunk in response.content.iter_any():
-                        yield chunk
-
-            except aiohttp.ClientResponseError as e:
-                logger.error("Error proxying download: %s - %s", e.status, str(e))
-                # Re-raise as HTTPException with appropriate status
-                raise HTTPException(status_code=e.status, detail=f"Error fetching file: {str(e)}")
-            except Exception as e:
-                logger.error("Unexpected error proxying download: %s", str(e))
-                raise HTTPException(status_code=500, detail=f"Error downloading file: {str(e)}")
-
+    session = aiohttp.ClientSession()
     try:
-        # Make a HEAD request first to get content headers without downloading the file
-        response_headers = {}
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.head(url, headers=headers) as head_response:
-                    head_response.raise_for_status()
+        upstream = await session.get(url, headers=headers)
+    except aiohttp.ClientError as e:
+        await session.close()
+        logger.error("Error connecting to Audiobookshelf for download: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="Audiobookshelf server is unavailable",
+        ) from e
+    except Exception as e:
+        await session.close()
+        logger.error("Unexpected error setting up download: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to set up download") from e
 
-                    # Get content type for proper MIME type handling
-                    content_type = head_response.headers.get("Content-Type", "application/octet-stream")
-
-                    # Set the same headers we received from Audiobookshelf
-                    for header_name, header_value in head_response.headers.items():
-                        if header_name.lower() not in ("content-type", "content-disposition", "content-length"):
-                            continue
-                        if header_name.lower() == "content-disposition" and not _latin1_safe(header_value):
-                            continue  # default ASCII fallback filename below
-                        response_headers[header_name] = header_value
-
-                    logger.debug("Proxying download with content type: %s", content_type)
-
-                    # Make sure we have a content-disposition header for proper filename
-                    if "content-disposition" not in {k.lower(): v for k, v in response_headers.items()}:
-                        filename = f"book-{item_id}.epub"
-                        response_headers["Content-Disposition"] = f'attachment; filename="{filename}"'
-
-            except Exception as e:
-                logger.warning("Error making HEAD request, continuing without headers: %s", str(e))
-                # If HEAD request fails, we'll continue without the headers
-                content_type = "application/octet-stream"
-                response_headers = {}
-
-        # Return a streaming response with the file content and appropriate headers
-        return StreamingResponse(
-            stream_file(),
-            media_type=content_type,
-            headers=response_headers
+    if upstream.status in (401, 403):
+        upstream.release()
+        await session.close()
+        logger.warning("Audiobookshelf rejected the download for item %s", item_id)
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required for downloads",
+            headers={"WWW-Authenticate": "Basic realm=\"OPDS-ABS\""},
         )
 
-    except Exception as e:
-        logger.error("Error setting up download proxy: %s", str(e))
-        raise HTTPException(status_code=500, detail=f"Failed to set up download: {str(e)}")
+    if upstream.status == 404:
+        upstream.release()
+        await session.close()
+        logger.warning("Item %s file %s not found in Audiobookshelf", item_id, file_ino)
+        raise HTTPException(status_code=404, detail="File not found")
+
+    if upstream.status >= 400:
+        upstream.release()
+        await session.close()
+        logger.warning(
+            "Audiobookshelf returned HTTP %d for download of item %s",
+            upstream.status,
+            item_id,
+        )
+        raise HTTPException(status_code=502, detail="Audiobookshelf download failed")
+
+    response_headers = _download_headers(upstream.headers)
+    content_type = response_headers["Content-Type"]
+
+    if "Content-Disposition" not in response_headers:
+        extension = _MIME_TO_EXTENSION.get(content_type.split(";")[0].strip(), "bin")
+        response_headers["Content-Disposition"] = (
+            f'attachment; filename="book-{item_id}.{extension}"'
+        )
+
+    async def stream_file():
+        try:
+            async for chunk in upstream.content.iter_any():
+                yield chunk
+        except Exception as e:
+            # Headers are already sent, so this can only be logged.
+            logger.error("Error while streaming download for item %s: %s", item_id, type(e).__name__)
+        finally:
+            upstream.release()
+            await session.close()
+
+    logger.debug("Streaming download for item %s with content type: %s", item_id, content_type)
+
+    return StreamingResponse(stream_file(), headers=response_headers)
