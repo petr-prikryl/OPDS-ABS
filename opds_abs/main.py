@@ -1003,6 +1003,15 @@ async def invalidate_specific_cache(
         raise CacheError(f"Failed to invalidate cache for {endpoint}") from e
 
 
+def _latin1_safe(value: str) -> bool:
+    """Return True if the header value can be encoded as latin-1 (HTTP-safe)."""
+    try:
+        value.encode("latin-1")
+        return True
+    except UnicodeEncodeError:
+        return False
+
+
 @app.get("/opds/proxy/download/{item_id}/file/{file_ino}")
 async def proxy_download(
     item_id: str,
@@ -1082,8 +1091,11 @@ async def proxy_download(
 
                     # Set the same headers we received from Audiobookshelf
                     for header_name, header_value in head_response.headers.items():
-                        if header_name.lower() in ("content-type", "content-disposition", "content-length"):
-                            response_headers[header_name] = header_value
+                        if header_name.lower() not in ("content-type", "content-disposition", "content-length"):
+                            continue
+                        if header_name.lower() == "content-disposition" and not _latin1_safe(header_value):
+                            continue  # default ASCII fallback filename below
+                        response_headers[header_name] = header_value
 
                     logger.debug("Proxying download with content type: %s", content_type)
 
