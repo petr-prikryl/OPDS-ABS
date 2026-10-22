@@ -1,7 +1,9 @@
-version: '3.8'
 services:
   opds:
-    image: opds-abs:latest
+    # Pre-built image. To build from source instead, comment this line out and
+    # uncomment the `build:` block below.
+    image: ghcr.io/petr-prikryl/opds-abs:latest
+    # build: .
     container_name: opds-abs
     restart: unless-stopped
     ports:
@@ -11,6 +13,10 @@ services:
       - PUID=1000  # Set to your user's UID for proper file permissions
       - PGID=1000  # Set to your user's GID for proper file permissions
       # Application settings
+      # AUDIOBOOKSHELF_INTERNAL_URL: how this container reaches Audiobookshelf
+      # (container name on the same Docker network, or host.docker.internal).
+      # AUDIOBOOKSHELF_EXTERNAL_URL: how your OPDS client reaches Audiobookshelf
+      # for covers and downloads (usually the public URL).
       # Legacy: AUDIOBOOKSHELF_URL is supported for backward compatibility
       # - AUDIOBOOKSHELF_URL=http://audiobookshelf
       - AUDIOBOOKSHELF_INTERNAL_URL=http://audiobookshelf
@@ -23,3 +29,19 @@ services:
       - ITEMS_PER_PAGE=25  # Set to 0 to show all items but keep pagination links
     volumes:
       - ./opds_abs/data:/app/opds_abs/data
+
+# Networking notes
+# ---------------
+# * Audiobookshelf on the same Docker network: use its service name above
+#   (http://audiobookshelf:13378) and keep both containers on that network.
+# * Audiobookshelf on the Docker host: use http://host.docker.internal:13378
+#   (add `extra_hosts: ["host.docker.internal:host-gateway"]` on Linux).
+# * If OPDS-ABS must bind the host network (e.g. Synology), set
+#   `network_mode: host`, remove the `ports:` block and point
+#   AUDIOBOOKSHELF_INTERNAL_URL at the host address.
+#
+# Authentication
+# --------------
+# Sign in with your Audiobookshelf username and password (or your ABS API key
+# as the password with API_KEY_AUTH_ENABLED=true). Do NOT paste the ABS token
+# from the browser; it expires and is not a login credential.

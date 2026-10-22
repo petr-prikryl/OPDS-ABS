@@ -25,7 +25,7 @@ This project provides an OPDS (Open Publication Distribution System) server that
  - **KOreader**
  - **Moon+ Reader Pro Android**
 
-## � Authentication Methods
+## 🔐 Authentication Methods
 
 OPDS-ABS supports multiple authentication methods to connect to your Audiobookshelf server:
 
@@ -76,31 +76,81 @@ If you need to switch between different authentication methods, you can use the 
 1. `API_KEY_AUTH_ENABLED=false` - Disables all API key authentication, forcing the use of username/password only
 2. `AUTH_TOKEN_CACHING=false` - Disables token caching, ensuring each request is authenticated fresh (useful when testing)
 
-## �🛠 Installation & Usage
+### Security notes
 
-### 1️⃣ **Clone the repository**
+- Feed links **never contain your Audiobookshelf token**. Your reader must send HTTP
+  Basic credentials with each request (all mainstream OPDS clients do). Tokens in URLs
+  used to end up in access logs, proxy logs and reader history.
+- A request without credentials is always answered with a `401` challenge. The server
+  never serves a catalog from a previously cached session.
+- Cached tokens are keyed by the exact credential that was accepted, so a wrong
+  password cannot ride on someone else's cached session.
+- ABS tokens are kept in memory only and are never written to `cache.pkl`.
+- `/admin/cache/*` requires an Audiobookshelf administrator account.
+- If you expose OPDS-ABS to the internet, put it behind HTTPS.
+
+## 🛠 Installation & Usage
+
+### 1️⃣ **Run the pre-built image**
+
+No clone is needed. Download the compose file and start it:
 
 ```bash
-git clone https://github.com/petr-prikryl/opds-abs.git
-cd opds-abs
+curl -o docker-compose.yml https://raw.githubusercontent.com/petr-prikryl/OPDS-ABS/refs/heads/master/docker-compose.yml
+docker compose up -d
 ```
 
-### 2️⃣ **Run with Docker Compose**
-
-Ensure **Docker** and **Docker Compose** are installed, then run:
+Or with plain Docker:
 
 ```bash
-docker-compose up -d
+docker run -d -p 8000:8000 \
+  --env AUDIOBOOKSHELF_INTERNAL_URL=http://audiobookshelf:13378 \
+  --env AUDIOBOOKSHELF_EXTERNAL_URL=https://abs.example.com \
+  --env PUID=$(id -u) \
+  --env PGID=$(id -g) \
+  --volume ./data:/app/opds_abs/data \
+  ghcr.io/petr-prikryl/opds-abs:latest
 ```
 
-This will start the OPDS server.
+### 2️⃣ **Run from source (optional)**
+
+```bash
+git clone https://github.com/petr-prikryl/OPDS-ABS.git
+cd OPDS-ABS
+docker compose up -d --build
+```
 
 ### 3️⃣ **Access the OPDS feed**
 
 - **OPDS Root:** `http://localhost:8000/opds/`
 - **Web Interface:** `http://localhost:8000/`
 
-You can use an OPDS-compatible reader (e.g., **Calibre, KOReader, Thorium Reader**) to access your books.
+You can use an OPDS-compatible reader (e.g., **KOReader, Moon+ Reader, PocketBook**) to access your books.
+
+When the reader asks for credentials, enter your **Audiobookshelf username and password**.
+Do not paste the token from your browser session — it expires and is not a login credential.
+If you prefer not to store your password in the reader, use an ABS API key as the password
+(see above).
+
+### How the container talks to Audiobookshelf
+
+Two URLs are used, and they are not interchangeable:
+
+- `AUDIOBOOKSHELF_INTERNAL_URL` — used by OPDS-ABS for API calls. It must be reachable
+  **from inside the container**.
+- `AUDIOBOOKSHELF_EXTERNAL_URL` — written into feed links for covers and downloads. It
+  must be reachable **from your reader** (usually the public URL).
+
+Typical setups:
+
+| Where Audiobookshelf runs | `AUDIOBOOKSHELF_INTERNAL_URL` |
+|---|---|
+| Same Docker network | `http://audiobookshelf:13378` (service name) |
+| Docker host | `http://host.docker.internal:13378` (add `extra_hosts: ["host.docker.internal:host-gateway"]` on Linux) |
+| Another machine | `http://192.168.1.10:13378` |
+
+If the container has to use the host network (e.g. on Synology), set `network_mode: host`,
+drop the `ports:` block and point `AUDIOBOOKSHELF_INTERNAL_URL` at the host address.
 
 ## ⚙ Configuration
 
@@ -147,6 +197,7 @@ services:
 | `ITEMS_PER_PAGE` | Number of items per page, 0 to disable pagination | `25` |
 | `OPDS_LOG_LEVEL` | Logging level (DEBUG, INFO, WARNING, ERROR) | `INFO` |
 | `CACHE_PERSISTENCE_ENABLED` | Enable/disable cache persistence | `true` |
+| `UVICORN_RELOAD` | Enable uvicorn auto-reload (development only; it keeps an idle container busy) | `false` |
 
 ## 🐳 Running from GitHub Container Registry (GHCR)
 
